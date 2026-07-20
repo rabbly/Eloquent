@@ -1,0 +1,16 @@
+# Build artifacts
+build/
+DerivedData/
+*.xcarchive
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# macOS
+.DS_Store
+
+# Generated Xcode project (regenerate with `xcodegen generate`)
+# Comment the next line out if you prefer to commit the .xcodeproj.
+Eloquent.xcodeproj/
