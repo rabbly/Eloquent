@@ -54,30 +54,35 @@ class StatusBarController {
         flashRevertWorkItem?.cancel()
 
         let display = count > 1 ? "\(word) ×\(count)" : word
+        let accent = NSColor(calibratedRed: 1.0, green: 0.42, blue: 0.20, alpha: 1.0)
 
-        if Settings.redFlashText {
-            button.image = nil
+        // Keep the waveform icon and append the flagged word in the warm accent color,
+        // matching the banner's palette (instead of a stark red text swap).
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.baseWritingDirection = .leftToRight
+        let noShadow = NSShadow()
+        noShadow.shadowColor = .clear
 
-            let font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .bold)
-            let noShadow = NSShadow()
-            noShadow.shadowColor = .clear
-            noShadow.shadowBlurRadius = 0
-            noShadow.shadowOffset = .zero
-            let attrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: NSColor.systemRed,
-                .font: font,
-                .shadow: noShadow
-            ]
-            button.attributedTitle = NSAttributedString(string: " \(display) ", attributes: attrs)
-        } else {
-            button.image = defaultImage
-            button.title = " \(display)"
-        }
+        let textColor = Settings.redFlashText ? accent : NSColor.labelColor
+        let attrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: textColor,
+            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold),
+            .shadow: noShadow
+        ]
+
+        button.image = defaultImage
+        button.imagePosition = .imageLeading
+        button.attributedTitle = NSAttributedString(string: "  \(display)", attributes: attrs)
 
         let revert = DispatchWorkItem { [weak self] in
             guard let self, let button = self.statusItem.button else { return }
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.25
+                button.animator().attributedTitle = NSAttributedString(string: "")
+            }
             button.attributedTitle = NSAttributedString(string: "")
             button.title = ""
+            button.imagePosition = .imageOnly
             button.image = self.defaultImage
         }
         flashRevertWorkItem = revert
@@ -91,8 +96,18 @@ class StatusBarController {
         // submenu parents (the stats flyout) behave correctly.
         menu.autoenablesItems = false
 
+        // Branded header: app name in accent, with the waveform mark.
         let titleItem = NSMenuItem(title: "Eloquent", action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
+        let headerCfg = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        let headerIcon = NSImage(systemSymbolName: "waveform", accessibilityDescription: nil)?
+            .withSymbolConfiguration(headerCfg)
+        headerIcon?.isTemplate = false
+        titleItem.image = headerIcon?.tinted(with: NSColor(calibratedRed: 1.0, green: 0.42, blue: 0.20, alpha: 1))
+        titleItem.attributedTitle = NSAttributedString(string: "Eloquent", attributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: .bold),
+            .foregroundColor: NSColor.labelColor
+        ])
         menu.addItem(titleItem)
         menu.addItem(.separator())
 
@@ -103,6 +118,7 @@ class StatusBarController {
         let manualItem = NSMenuItem(title: "Manual mode (always on)", action: #selector(toggleManualMode(_:)), keyEquivalent: "")
         manualItem.target = self
         manualItem.state = Settings.manualMode ? .on : .off
+        manualItem.image = symbolImage("hand.raised.fill")
         menu.addItem(manualItem)
 
         menu.addItem(.separator())
@@ -122,9 +138,19 @@ class StatusBarController {
 
         let quit = NSMenuItem(title: "Quit Eloquent", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp
+        quit.image = symbolImage("power")
         menu.addItem(quit)
 
         menu.delegate = self as? NSMenuDelegate
+    }
+
+    // A menu-sized, template SF Symbol for menu item icons.
+    private func symbolImage(_ name: String) -> NSImage? {
+        let cfg = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        let img = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(cfg)
+        img?.isTemplate = true
+        return img
     }
 
     private func updateStatusMenuItem() {
@@ -213,6 +239,7 @@ class StatusBarController {
 
     private func addFillerWordsSubmenu() {
         let parent = NSMenuItem(title: "Filler Words", action: nil, keyEquivalent: "")
+        parent.image = symbolImage("text.bubble")
         let sub = NSMenu(title: "Filler Words")
         sub.autoenablesItems = false
 
@@ -310,6 +337,7 @@ class StatusBarController {
 
     private func addMonitoredAppsSubmenu() {
         let parent = NSMenuItem(title: "Monitored Apps", action: nil, keyEquivalent: "")
+        parent.image = symbolImage("app.badge")
         let sub = NSMenu(title: "Monitored Apps")
         sub.autoenablesItems = false
 
@@ -441,6 +469,7 @@ class StatusBarController {
 
     private func addDetectionModeSubmenu() {
         let parent = NSMenuItem(title: "Detection Mode", action: nil, keyEquivalent: "")
+        parent.image = symbolImage("dial.medium")
         let sub = NSMenu(title: "Detection Mode")
         let current = Settings.detectionMode
         for mode in Settings.DetectionMode.allCases {
@@ -466,6 +495,7 @@ class StatusBarController {
 
         private func addNotificationStyleSubmenu() {
             let parent = NSMenuItem(title: "Notification Style", action: nil, keyEquivalent: "")
+            parent.image = symbolImage("bell.badge")
             let sub = NSMenu(title: "Notification Style")
             let current = Settings.notificationStyle
             for style in Settings.NotificationStyle.allCases {
@@ -507,6 +537,7 @@ class StatusBarController {
 
         private func addLanguageSubmenu() {
             let languageItem = NSMenuItem(title: "Language", action: nil, keyEquivalent: "")
+            languageItem.image = symbolImage("globe")
             let sub = NSMenu(title: "Language")
 
             let currentLocaleID = FillerWordRecognizer.savedLocale().identifier
@@ -542,6 +573,23 @@ class StatusBarController {
             verboseItem.target = self
             verboseItem.state = Settings.verboseLogging ? .on : .off
             menu.addItem(verboseItem)
+
+            let testItem = NSMenuItem(title: "Test notification", action: #selector(testNotification(_:)), keyEquivalent: "")
+            testItem.target = self
+            menu.addItem(testItem)
+        }
+
+        @objc private func testNotification(_ sender: NSMenuItem) {
+            // Fire a couple of sample notifications so the banner design can be reviewed.
+            let samples: [(String, Int)] = [("um", 1), ("like", 3), ("you know", 7)]
+            for (i, s) in samples.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 2.6) {
+                    switch Settings.notificationStyle {
+                    case .banner:  BannerOverlay.shared.show(word: s.0, count: s.1)
+                    case .menuBar: self.flashInMenuBar(word: s.0, count: s.1)
+                    }
+                }
+            }
         }
 
         @objc private func toggleVerboseLogging(_ sender: NSMenuItem) {
@@ -557,3 +605,19 @@ class StatusBarController {
             buildMenu()
         }
     }
+
+extension NSImage {
+    /// Returns a copy of the image filled with the given color (source-atop),
+    /// used for colored menu item glyphs.
+    func tinted(with color: NSColor) -> NSImage {
+        let img = NSImage(size: size)
+        img.lockFocus()
+        color.set()
+        let rect = NSRect(origin: .zero, size: size)
+        draw(in: rect)
+        rect.fill(using: .sourceAtop)
+        img.unlockFocus()
+        img.isTemplate = false
+        return img
+    }
+}

@@ -7,10 +7,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var appController: AppController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Design-review hook: ELOQUENT_DEMO=1 plays sample banners and skips the
+        // permission/recognizer path entirely so the UI can be reviewed in isolation.
+        if ProcessInfo.processInfo.environment["ELOQUENT_DEMO"] == "1" {
+            runBannerDemo()
+            return
+        }
+
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         print("[AppDelegate] initial mic authorization status = \(micStatus.rawValue) " +
               "(0=notDetermined,1=restricted,2=denied,3=authorized)")
         requestPermissions()
+    }
+
+    private func runBannerDemo() {
+        let samples: [(String, Int)] = [("um", 1), ("like", 3), ("you know", 7)]
+        for (i, s) in samples.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8 + Double(i) * 2.8) {
+                BannerOverlay.shared.show(word: s.0, count: s.1)
+            }
+        }
     }
 
     private func requestPermissions() {
