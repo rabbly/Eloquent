@@ -217,7 +217,12 @@ class BannerContentView: NSViewController {
                                 width: scrim.bounds.width, height: scrim.bounds.height * 0.34)
     }
 
-    func animateWaveform() { waveform.pulse() }
+    func animateWaveform() {
+        waveform.startAnimating()
+        waveform.pulse()
+    }
+
+    func stopWaveform() { waveform.stopAnimating() }
 
     private func captionString() -> NSAttributedString {
         NSAttributedString(string: "FILLER WORD", attributes: [

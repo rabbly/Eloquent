@@ -66,4 +66,28 @@ final class WaveformView: NSView {
             bar.add(anim, forKey: "pulse")
         }
     }
+
+    /// Continuously oscillate the bars while the banner is visible, so the badge
+    /// feels "alive" (like an equalizer). Each bar runs its own looping cycle with a
+    /// staggered phase and slightly different period.
+    func startAnimating() {
+        for (i, bar) in bars.enumerated() {
+            let base = baseHeight(for: i)
+            let high = min(bounds.height * 0.95, base * 1.7)
+            let low = max(bounds.height * 0.22, base * 0.5)
+            let anim = CAKeyframeAnimation(keyPath: "bounds.size.height")
+            anim.values = [base, high, low, base]
+            anim.keyTimes = [0, 0.33, 0.66, 1.0]
+            anim.duration = 0.9 + Double(i) * 0.07     // varied periods → organic feel
+            anim.repeatCount = .infinity
+            anim.autoreverses = false
+            anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            anim.beginTime = CACurrentMediaTime() + Double(i) * 0.08
+            bar.add(anim, forKey: "equalize")
+        }
+    }
+
+    func stopAnimating() {
+        for bar in bars { bar.removeAnimation(forKey: "equalize") }
+    }
 }

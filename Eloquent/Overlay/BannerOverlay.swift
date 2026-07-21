@@ -171,6 +171,7 @@ class BannerOverlay {
             panel.animator().setFrame(targetRect, display: true)
             panel.animator().alphaValue = 0.0
         }, completionHandler: { [weak self] in
+            self?.contentVC.stopWaveform()
             self?.panel.orderOut(nil)
         })
     }
