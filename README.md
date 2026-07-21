@@ -28,8 +28,9 @@
 
 Eloquent aims to feel at home among the best-crafted Mac apps:
 
-- **Liquid-glass banner** — an `NSVisualEffectView` HUD pill with a hairline highlight edge, a warm orange gradient badge, and animated waveform bars that pulse when a word is flagged.
-- **Fluid motion** — the banner springs in from the top with a subtle overshoot and retracts upward on dismiss, echoing the Dynamic Island.
+- **Notch-aware notifications** — on MacBooks with a notch, the alert grows out of the notch itself (square top corners flush to the top edge, rounded bottom, blending with the black) like the Dynamic Island. On external or notch-less displays it becomes a floating glass pill that drops from the top-center. One component adapts to the screen.
+- **Legible on any background** — an opaque dark scrim sits above the vibrancy, so the word is always crisp whether your desktop is light or dark, backed by a warm orange badge and a subtle top-edge sheen.
+- **A badge that's alive** — animated equalizer bars oscillate while the alert is visible, with an extra pulse the moment a word is flagged.
 - **Cohesive palette** — the same warm orange accent runs through the badge, the menu-bar flash, the frequency-ranked stats, and the menu's branded header.
 - **Native and restrained** — SF Symbols throughout, system materials and typography, no heavy chrome.
 
