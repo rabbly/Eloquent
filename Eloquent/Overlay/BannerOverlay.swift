@@ -78,14 +78,14 @@ class BannerOverlay {
             return
         }
 
-        // Start at full opacity but collapsed to the notch footprint, so the black
-        // never fades (a fade would reveal the desktop around the physical notch).
-        // The "appear" reads purely as the shape expanding out of the notch.
-        panel.setFrame(NSRect(x: startX, y: startY, width: startWidth, height: fullHeight), display: false)
+        // Start collapsed to just the notch-inset height so the panel stays entirely
+        // within the notch display — no bleed onto whatever display sits above.
+        let startHeight = topInset
+        panel.setFrame(NSRect(x: startX, y: notch.topY - startHeight, width: startWidth, height: startHeight), display: false)
         panel.alphaValue = 1.0
         panel.orderFrontRegardless()
 
-        // Expand downward + outward from the notch, with a spring settle.
+        // Expand downward + outward to full size.
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.46
             ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)

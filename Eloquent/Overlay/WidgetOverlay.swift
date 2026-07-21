@@ -35,14 +35,12 @@ final class WidgetOverlay {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
+        panel.alphaValue = 0           // always start hidden
         panel.ignoresMouseEvents = false
         panel.acceptsMouseMovedEvents = false
         panel.contentViewController = contentVC
 
-        // Let the panel receive mouse events for dragging.
-        contentVC.view.window?.acceptsMouseMovedEvents = false
         installDragHandlers()
-
         restorePosition()
     }
 
@@ -51,7 +49,8 @@ final class WidgetOverlay {
     func show() {
         guard !isShowing else { return }
         isShowing = true
-        if panel.screen == nil { restorePosition() }
+        restorePosition()
+        panel.alphaValue = 0
         panel.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.2

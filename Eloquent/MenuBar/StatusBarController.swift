@@ -503,13 +503,26 @@ class StatusBarController {
                 item.target = self
                 item.representedObject = style.rawValue
                 item.state = (style == current) ? .on : .off
+
+                // Attach "Red flash text" as a flyout only on Menu Bar Flash.
+                if style == .menuBar {
+                    let optSub = NSMenu(title: style.displayName)
+                    let toggle = NSMenuItem(title: style.displayName, action: #selector(notificationStyleSelected(_:)), keyEquivalent: "")
+                    toggle.target = self
+                    toggle.representedObject = style.rawValue
+                    toggle.state = (style == current) ? .on : .off
+                    optSub.addItem(toggle)
+                    optSub.addItem(.separator())
+                    let redItem = NSMenuItem(title: "Red flash text", action: #selector(toggleRedFlash(_:)), keyEquivalent: "")
+                    redItem.target = self
+                    redItem.state = Settings.redFlashText ? .on : .off
+                    optSub.addItem(redItem)
+                    item.submenu = optSub
+                    item.action = nil   // chevron only; selection handled inside flyout
+                }
+
                 sub.addItem(item)
             }
-            sub.addItem(.separator())
-            let redItem = NSMenuItem(title: "Red flash text", action: #selector(toggleRedFlash(_:)), keyEquivalent: "")
-            redItem.target = self
-            redItem.state = Settings.redFlashText ? .on : .off
-            sub.addItem(redItem)
 
             parent.submenu = sub
             menu.addItem(parent)
