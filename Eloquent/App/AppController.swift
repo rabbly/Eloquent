@@ -34,7 +34,7 @@ class AppController {
                 case .menuBar:
                     self.statusBar.flashInMenuBar(word: word, count: count)
                 case .widget:
-                    WidgetOverlay.shared.updateStats(self.stats)
+                    WidgetOverlay.shared.updateStats(self.stats, newWord: word)
                 }
             }
         }
