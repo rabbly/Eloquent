@@ -3,13 +3,13 @@ import AppKit
 @MainActor
 final class WidgetContentView: NSViewController {
 
-    // Drag/tap callbacks
     var onMouseDown: ((NSEvent) -> Void)?
     var onMouseDragged: ((NSEvent) -> Void)?
     var onMouseUp: ((NSEvent) -> Void)?
 
     private let pillRadius: CGFloat = 28
     private let badgeSize: CGFloat = 36
+    private let collapsedRowHeight: CGFloat = 56
     private let accent = NSColor(calibratedRed: 1.0, green: 0.52, blue: 0.28, alpha: 1.0)
 
     // Background
@@ -18,12 +18,12 @@ final class WidgetContentView: NSViewController {
     private let scrim = NSView()
     private let border = CALayer()
 
-    // Badge
+    // Badge (always in the top row, vertically centered within collapsedRowHeight)
     private let badge = NSView()
     private let badgeGradient = CAGradientLayer()
     private let waveform = WaveformView()
 
-    // Collapsed states
+    // Collapsed-row content (all share the same centerY as the badge)
     private let noSessionLabel = NSTextField(labelWithString: "No active call")
     private let listeningLabel = NSTextField(labelWithString: "Listening…")
     private let captionLabel = NSTextField(labelWithString: "TOP WORD")
@@ -33,17 +33,22 @@ final class WidgetContentView: NSViewController {
     private let totalLabel = NSTextField(labelWithString: "")
     private var textStack: NSStackView!
 
-    // Expanded state: vertical list of word rows
+    // Expanded section (appears below the collapsed row on click)
     private let expandedContainer = NSView()
+    private var expandedRowsStack: NSStackView?
 
-    // Flash state
+    // Flash
     private var flashRevert: DispatchWorkItem?
-    private var lastFlashedWord = ""
+
+    // Track latest stats so showCollapsed can restore
+    private var latestStats = SessionStats()
+    private var latestNewWord: String?
 
     override func loadView() {
         let container = NSView()
         container.wantsLayer = true
 
+        // Background pill
         bg.wantsLayer = true
         bg.layer?.masksToBounds = true
         bg.layer?.cornerRadius = pillRadius
@@ -66,7 +71,7 @@ final class WidgetContentView: NSViewController {
         border.cornerRadius = pillRadius
         bg.layer?.addSublayer(border)
 
-        // Badge
+        // Badge — always anchored to the center of the top 56pt row
         badge.wantsLayer = true
         badge.translatesAutoresizingMaskIntoConstraints = false
         badgeGradient.colors = [
@@ -82,19 +87,18 @@ final class WidgetContentView: NSViewController {
         waveform.translatesAutoresizingMaskIntoConstraints = false
         badge.addSubview(waveform)
 
-        // No-session
+        // Status labels
         noSessionLabel.font = NSFont.systemFont(ofSize: 11, weight: .regular)
         noSessionLabel.textColor = NSColor.white.withAlphaComponent(0.4)
         configure(label: noSessionLabel)
         container.addSubview(noSessionLabel)
 
-        // Listening
         listeningLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
         listeningLabel.textColor = NSColor.white.withAlphaComponent(0.5)
         configure(label: listeningLabel)
         container.addSubview(listeningLabel)
 
-        // Words-detected (collapsed)
+        // Word stack (caption + word + total)
         captionLabel.attributedStringValue = NSAttributedString(string: "TOP WORD", attributes: [
             .font: NSFont.systemFont(ofSize: 8, weight: .bold),
             .foregroundColor: accent,
@@ -117,6 +121,7 @@ final class WidgetContentView: NSViewController {
         textStack.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(textStack)
 
+        // Count chip
         countChip.wantsLayer = true
         countChip.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.16).cgColor
         countChip.layer?.cornerRadius = 10
@@ -128,10 +133,14 @@ final class WidgetContentView: NSViewController {
         configure(label: countChipLabel)
         countChip.addSubview(countChipLabel)
 
-        // Expanded container (hidden by default)
+        // Expanded container — sits below the collapsed row
         expandedContainer.translatesAutoresizingMaskIntoConstraints = false
         expandedContainer.isHidden = true
         container.addSubview(expandedContainer)
+
+        // The badge centerY is always at collapsedRowHeight/2 from the top.
+        // This keeps it in the same position whether collapsed or expanded.
+        let badgeCenterY = collapsedRowHeight / 2
 
         NSLayoutConstraint.activate([
             bg.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -149,8 +158,9 @@ final class WidgetContentView: NSViewController {
             scrim.topAnchor.constraint(equalTo: bg.topAnchor),
             scrim.bottomAnchor.constraint(equalTo: bg.bottomAnchor),
 
+            // Badge always vertically centered in the top 56pt row
             badge.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            badge.centerYAnchor.constraint(equalTo: container.topAnchor, constant: 28), // always 28pt from top
+            badge.centerYAnchor.constraint(equalTo: container.topAnchor, constant: badgeCenterY),
             badge.widthAnchor.constraint(equalToConstant: badgeSize),
             badge.heightAnchor.constraint(equalToConstant: badgeSize),
 
@@ -159,6 +169,7 @@ final class WidgetContentView: NSViewController {
             waveform.widthAnchor.constraint(equalToConstant: 20),
             waveform.heightAnchor.constraint(equalToConstant: 16),
 
+            // All collapsed-state content shares the badge centerY
             noSessionLabel.leadingAnchor.constraint(equalTo: badge.trailingAnchor, constant: 10),
             noSessionLabel.centerYAnchor.constraint(equalTo: badge.centerYAnchor),
 
@@ -179,10 +190,11 @@ final class WidgetContentView: NSViewController {
             countChipLabel.leadingAnchor.constraint(equalTo: countChip.leadingAnchor, constant: 8),
             countChipLabel.trailingAnchor.constraint(equalTo: countChip.trailingAnchor, constant: -8),
 
-            expandedContainer.leadingAnchor.constraint(equalTo: badge.trailingAnchor, constant: 10),
-            expandedContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
-            expandedContainer.topAnchor.constraint(equalTo: badge.bottomAnchor, constant: 8),
-            expandedContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -10),
+            // Expanded container starts immediately below the collapsed row
+            expandedContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            expandedContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            expandedContainer.topAnchor.constraint(equalTo: container.topAnchor, constant: collapsedRowHeight),
+            expandedContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
         ])
 
         showNoSession()
@@ -195,7 +207,7 @@ final class WidgetContentView: NSViewController {
         badgeGradient.frame = badge.bounds
     }
 
-    // MARK: - Collapsed state transitions
+    // MARK: - Collapsed states
 
     func showNoSession() {
         guard isViewLoaded else { return }
@@ -215,10 +227,22 @@ final class WidgetContentView: NSViewController {
         expandedContainer.isHidden = true
     }
 
-    // MARK: - updateStats with new-word flash
+    func showCollapsed() {
+        guard isViewLoaded else { return }
+        expandedContainer.isHidden = true
+        // Restore the correct collapsed state based on what we last had
+        if latestStats.total() > 0 {
+            updateStats(latestStats, newWord: nil)
+        } else {
+            showListening()
+        }
+    }
+
+    // MARK: - Stats + flash
 
     func updateStats(_ stats: SessionStats, newWord: String? = nil) {
         guard isViewLoaded else { return }
+        latestStats = stats
         noSessionLabel.isHidden = true
         listeningLabel.isHidden = true
 
@@ -235,7 +259,6 @@ final class WidgetContentView: NSViewController {
         countChip.isHidden = top.count < 2
         countChipLabel.stringValue = "×\(top.count)"
 
-        // Flash the newly detected word in accent before settling to top word.
         if let new = newWord, !new.isEmpty {
             flashRevert?.cancel()
             wordLabel.stringValue = new
@@ -244,10 +267,6 @@ final class WidgetContentView: NSViewController {
 
             let revert = DispatchWorkItem { [weak self] in
                 guard let self else { return }
-                NSAnimationContext.runAnimationGroup { ctx in
-                    ctx.duration = 0.3
-                    ctx.allowsImplicitAnimation = true
-                }
                 self.wordLabel.stringValue = top.word
                 self.wordLabel.textColor = .white
                 self.countChipLabel.stringValue = "×\(top.count)"
@@ -263,94 +282,123 @@ final class WidgetContentView: NSViewController {
 
     // MARK: - Expanded state
 
-    /// Returns the height the expanded content needs (for the overlay to resize the panel).
+    /// Builds the expanded rows and returns the extra height needed.
     func showExpanded(stats: SessionStats) -> CGFloat {
         guard isViewLoaded else { return 0 }
-        expandedContainer.subviews.forEach { $0.removeFromSuperview() }
+        latestStats = stats
 
-        let summary = stats.summary()
-        let rowH: CGFloat = 20
-        let gap: CGFloat = 4
-        var y = CGFloat(summary.count - 1) * (rowH + gap)  // NSView bottom-up
+        // Clear previous rows
+        expandedRowsStack?.removeFromSuperview()
+        expandedRowsStack = nil
 
-        for entry in summary {
-            let row = makeExpandedRow(word: entry.word, count: entry.count)
-            row.frame = NSRect(x: 0, y: y, width: 160, height: rowH)
-            expandedContainer.addSubview(row)
-            y -= rowH + gap
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        expandedContainer.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: expandedContainer.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: expandedContainer.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: expandedContainer.topAnchor),
+        ])
+
+        // Header
+        let header = makeLabel("THIS SESSION", size: 8, weight: .bold, color: accent, kern: 1.5)
+        stack.addArrangedSubview(header)
+
+        let divider = NSView()
+        divider.wantsLayer = true
+        divider.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        divider.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        stack.addArrangedSubview(divider)
+        divider.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        // Word rows
+        for entry in stats.summary() {
+            stack.addArrangedSubview(makeRow(word: entry.word, count: entry.count, bold: false))
         }
 
-        // Total separator line
-        let sep = NSBox()
-        sep.boxType = .separator
-        sep.frame = NSRect(x: 0, y: y, width: 160, height: 1)
-        expandedContainer.addSubview(sep)
-        y -= rowH
+        // Total row
+        stack.addArrangedSubview(NSView()) // small spacer
+        stack.addArrangedSubview(makeRow(word: "Total", count: stats.total(), bold: true))
 
-        let totalRow = makeExpandedRow(word: "Total", count: stats.total(), bold: true)
-        totalRow.frame = NSRect(x: 0, y: y, width: 160, height: rowH)
-        expandedContainer.addSubview(totalRow)
-
-        // Show expanded, hide collapsed word/count
+        expandedRowsStack = stack
         expandedContainer.isHidden = false
         textStack.isHidden = true
         countChip.isHidden = true
 
-        // Height = collapsed row (56) + expanded content
-        let expandedH = CGFloat(summary.count + 2) * (rowH + gap) + 24
+        // Calculate height: header + divider + (rows * rowHeight) + total + padding
+        let rowCount = CGFloat(stats.summary().count + 1) // words + total
+        let expandedH = 20 + 1 + 6 + rowCount * 22 + 16
         return expandedH
     }
 
-    func showCollapsed() {
-        guard isViewLoaded else { return }
-        expandedContainer.isHidden = true
-        // Restore normal word display if we have content
-        if !wordLabel.stringValue.isEmpty {
-            textStack.isHidden = false
-        }
-    }
+    private func makeRow(word: String, count: Int, bold: Bool) -> NSView {
+        let row = NSView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.heightAnchor.constraint(equalToConstant: 20).isActive = true
 
-    private func makeExpandedRow(word: String, count: Int, bold: Bool = false) -> NSView {
-        let container = NSView()
-        let wordF = NSTextField(labelWithString: word)
-        wordF.font = NSFont.systemFont(ofSize: 11, weight: bold ? .semibold : .regular)
-        wordF.textColor = bold ? .white : NSColor.white.withAlphaComponent(0.75)
-        wordF.frame = NSRect(x: 0, y: 2, width: 110, height: 16)
-        container.addSubview(wordF)
+        let wordF = makeLabel(word, size: 11, weight: bold ? .semibold : .regular,
+                              color: bold ? .white : NSColor.white.withAlphaComponent(0.8))
+        wordF.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(wordF)
 
-        let countF = NSTextField(labelWithString: "×\(count)")
-        countF.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: bold ? .semibold : .regular)
-        countF.textColor = bold ? accent : NSColor.white.withAlphaComponent(0.55)
+        let countF = makeLabel("×\(count)", size: 11, weight: bold ? .semibold : .regular,
+                                color: bold ? accent : NSColor.white.withAlphaComponent(0.5))
         countF.alignment = .right
-        countF.frame = NSRect(x: 114, y: 2, width: 46, height: 16)
-        container.addSubview(countF)
+        countF.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(countF)
 
-        return container
+        NSLayoutConstraint.activate([
+            wordF.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+            wordF.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            countF.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+            countF.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            countF.leadingAnchor.constraint(greaterThanOrEqualTo: wordF.trailingAnchor, constant: 8),
+        ])
+        return row
     }
 
-    func startWaveform() { guard isViewLoaded else { return }; waveform.startAnimating() }
-    func stopWaveform() { guard isViewLoaded else { return }; waveform.stopAnimating() }
+    private func makeLabel(_ text: String, size: CGFloat, weight: NSFont.Weight,
+                           color: NSColor, kern: CGFloat = 0) -> NSTextField {
+        let l = NSTextField(labelWithString: text)
+        l.font = NSFont.systemFont(ofSize: size, weight: weight)
+        l.textColor = color
+        if kern != 0 {
+            l.attributedStringValue = NSAttributedString(string: text, attributes: [
+                .font: NSFont.systemFont(ofSize: size, weight: weight),
+                .foregroundColor: color,
+                .kern: kern
+            ])
+        }
+        l.isBezeled = false; l.isEditable = false; l.isSelectable = false; l.drawsBackground = false
+        return l
+    }
 
     func resetSession() {
         guard isViewLoaded else { return }
         flashRevert?.cancel()
         flashRevert = nil
+        latestStats = SessionStats()
         wordLabel.stringValue = ""
         totalLabel.stringValue = ""
         showListening()
     }
 
-    // MARK: - Mouse handling
+    func startWaveform() { guard isViewLoaded else { return }; waveform.startAnimating() }
+    func stopWaveform()  { guard isViewLoaded else { return }; waveform.stopAnimating() }
+
+    // MARK: - Mouse
 
     override func mouseDown(with event: NSEvent) { onMouseDown?(event) }
     override func mouseDragged(with event: NSEvent) { onMouseDragged?(event) }
     override func mouseUp(with event: NSEvent) { onMouseUp?(event) }
 
     private func configure(label l: NSTextField) {
-        l.isBezeled = false
-        l.isEditable = false
-        l.isSelectable = false
-        l.drawsBackground = false
+        l.isBezeled = false; l.isEditable = false; l.isSelectable = false; l.drawsBackground = false
         l.translatesAutoresizingMaskIntoConstraints = false
         l.setContentHuggingPriority(.required, for: .horizontal)
     }
