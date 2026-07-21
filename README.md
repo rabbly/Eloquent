@@ -17,12 +17,21 @@
 ## Features
 
 - **Real-time filler word detection** — catches "um", "uh", "like", "you know", and more as you speak.
+- **A notification that feels alive** — filler words surface in a Dynamic-Island-style glass banner that springs down from the notch, with an animated waveform badge, a bold word label, and a repeat-count chip. Prefer something quieter? Switch to a menu-bar flash.
 - **Works where you do** — detects when a call app (Microsoft Teams, Slack, Zoom, Webex, Discord, FaceTime) is using the microphone. Add any other app via a Finder picker.
 - **Manual or auto mode** — let Eloquent activate automatically during calls, or flip on manual mode to monitor any time.
 - **Session stats** — a color-ranked flyout shows how often you said each filler word this session, with a running total. Counts reset each new session.
-- **Choose your notification** — a floating banner or a menu-bar flash when a filler word is detected.
 - **Customizable** — tune the filler word list (including custom words), detection mode, notification style, and recognition language.
 - **Private & secure** — powered by Apple's on-device `SpeechAnalyzer`. Audio never leaves your Mac.
+
+## Design
+
+Eloquent aims to feel at home among the best-crafted Mac apps:
+
+- **Liquid-glass banner** — an `NSVisualEffectView` HUD pill with a hairline highlight edge, a warm orange gradient badge, and animated waveform bars that pulse when a word is flagged.
+- **Fluid motion** — the banner springs in from the top with a subtle overshoot and retracts upward on dismiss, echoing the Dynamic Island.
+- **Cohesive palette** — the same warm orange accent runs through the badge, the menu-bar flash, the frequency-ranked stats, and the menu's branded header.
+- **Native and restrained** — SF Symbols throughout, system materials and typography, no heavy chrome.
 
 ## Requirements
 
