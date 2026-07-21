@@ -50,6 +50,9 @@ final class WidgetOverlay {
         guard !isShowing else { return }
         isShowing = true
         restorePosition()
+        // Force the lazy view load before the panel is shown, otherwise the panel
+        // appears as an empty zero-size window.
+        contentVC.loadViewIfNeeded()
         panel.alphaValue = 0
         panel.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { ctx in

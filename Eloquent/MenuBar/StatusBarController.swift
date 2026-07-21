@@ -518,7 +518,10 @@ class StatusBarController {
                     redItem.state = Settings.redFlashText ? .on : .off
                     optSub.addItem(redItem)
                     item.submenu = optSub
-                    item.action = nil   // chevron only; selection handled inside flyout
+                // Do NOT set item.action = nil here — AppKit already opens the flyout
+                // instead of firing the action when a submenu is present. Keeping the
+                // action set ensures the item stays enabled and its checkmark is tracked
+                // correctly by the clearing loop in notificationStyleSelected.
                 }
 
                 sub.addItem(item)

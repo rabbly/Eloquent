@@ -55,11 +55,11 @@ class AppController {
                     FillerWordRecognizer.shared.stop()
                     self.statusBar.setCallActive(false)
                 }
-                // Widget reacts to call state regardless of notification style
-                // so the user can switch styles while the widget is visible.
+                // Set call state BEFORE show() so the widget reads isCallActive correctly
+                // and animates directly to the right alpha, avoiding an idle→active flicker.
                 if Settings.notificationStyle == .widget {
-                    if active { WidgetOverlay.shared.show() }
                     WidgetOverlay.shared.setCallActive(active)
+                    if active { WidgetOverlay.shared.show() }
                 }
             }
             .store(in: &cancellables)
