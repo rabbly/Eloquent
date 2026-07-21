@@ -197,6 +197,10 @@ class BannerContentView: NSViewController {
                                        .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
             border.cornerRadius = pillRadius
             border.isHidden = false
+            // Glassy pill: translucent scrim over vibrancy + specular sheen.
+            effect.isHidden = false
+            specular.isHidden = false
+            scrim.layer?.backgroundColor = NSColor(calibratedWhite: 0.06, alpha: 0.92).cgColor
         case .notch(let topInset):
             topInsetConstraint.constant = topInset
             bg.layer?.cornerRadius = notchBottomRadius
@@ -204,6 +208,10 @@ class BannerContentView: NSViewController {
             bg.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
             border.cornerRadius = notchBottomRadius
             border.isHidden = true   // no rim in notch mode; it reads as part of the notch
+            // Match the physical notch: pure opaque black, no vibrancy/sheen bleed.
+            effect.isHidden = true
+            specular.isHidden = true
+            scrim.layer?.backgroundColor = NSColor.black.cgColor
         }
         view.needsLayout = true
     }

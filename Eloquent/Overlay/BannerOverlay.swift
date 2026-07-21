@@ -78,8 +78,11 @@ class BannerOverlay {
             return
         }
 
+        // Start at full opacity but collapsed to the notch footprint, so the black
+        // never fades (a fade would reveal the desktop around the physical notch).
+        // The "appear" reads purely as the shape expanding out of the notch.
         panel.setFrame(NSRect(x: startX, y: startY, width: startWidth, height: fullHeight), display: false)
-        panel.alphaValue = 0
+        panel.alphaValue = 1.0
         panel.orderFrontRegardless()
 
         // Expand downward + outward from the notch, with a spring settle.
@@ -87,7 +90,6 @@ class BannerOverlay {
             ctx.duration = 0.46
             ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
             panel.animator().setFrame(NSRect(x: x, y: restY, width: width, height: fullHeight), display: true)
-            panel.animator().alphaValue = 1.0
         }
     }
 
@@ -154,17 +156,28 @@ class BannerOverlay {
         let f = panel.frame
 
         // Retract upward toward the top edge / notch, fading out.
-        let targetRect: NSRect
         if notch.hasNotch {
+            // Collapse the black shape back into the notch footprint. No alpha fade —
+            // fading would reveal the desktop around the physical notch. We shrink the
+            // height to ~the notch inset so it visually tucks back up into the notch.
             let startWidth = max(notch.notchWidth, 140)
-            targetRect = NSRect(x: notch.centerX - startWidth / 2,
-                                y: notch.topY - notch.topInset - 4,
-                                width: startWidth, height: f.height)
-        } else {
-            targetRect = NSRect(x: f.origin.x, y: f.origin.y + 22,
-                                width: f.width, height: f.height)
+            let collapsedHeight = notch.topInset
+            let targetRect = NSRect(x: notch.centerX - startWidth / 2,
+                                    y: notch.topY - collapsedHeight,
+                                    width: startWidth, height: collapsedHeight)
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.26
+                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0.0, 0.2, 1.0)
+                panel.animator().setFrame(targetRect, display: true)
+            }, completionHandler: { [weak self] in
+                self?.contentVC.stopWaveform()
+                self?.panel.orderOut(nil)
+            })
+            return
         }
 
+        // Pill mode: retract upward and fade out.
+        let targetRect = NSRect(x: f.origin.x, y: f.origin.y + 22, width: f.width, height: f.height)
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.28
             ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0.0, 0.2, 1.0)
