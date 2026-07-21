@@ -114,10 +114,10 @@ final class WidgetContentView: NSViewController {
         totalLabel.textColor = NSColor.white.withAlphaComponent(0.4)
         configure(label: totalLabel)
 
-        textStack = NSStackView(views: [captionLabel, wordLabel, totalLabel])
+        textStack = NSStackView(views: [captionLabel, wordLabel])
         textStack.orientation = .vertical
         textStack.alignment = .leading
-        textStack.spacing = 1
+        textStack.spacing = 2
         textStack.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(textStack)
 
@@ -252,9 +252,6 @@ final class WidgetContentView: NSViewController {
         }
 
         guard let top = stats.summary().first else { return }
-        let t = stats.total()
-        totalLabel.stringValue = "\(t) total"
-        totalLabel.isHidden = false
         textStack.isHidden = false
         countChip.isHidden = top.count < 2
         countChipLabel.stringValue = "×\(top.count)"
@@ -327,8 +324,7 @@ final class WidgetContentView: NSViewController {
 
         expandedRowsStack = stack
         expandedContainer.isHidden = false
-        textStack.isHidden = true
-        countChip.isHidden = true
+        // Keep the top row (badge + word + count chip) visible — don't hide textStack/countChip.
 
         // Calculate height: header + divider + (rows * rowHeight) + total + padding
         let rowCount = CGFloat(stats.summary().count + 1) // words + total
@@ -384,7 +380,6 @@ final class WidgetContentView: NSViewController {
         flashRevert = nil
         latestStats = SessionStats()
         wordLabel.stringValue = ""
-        totalLabel.stringValue = ""
         showListening()
     }
 
