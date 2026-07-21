@@ -220,12 +220,17 @@ final class WidgetContentView: NSViewController {
         totalLabel.isHidden = false
         textStack.isHidden = false
         waveform.pulse()
+
+        // Update tooltip with the full breakdown.
+        let lines = stats.summary().map { "\($0.word)  ×\($0.count)" }.joined(separator: "\n")
+        view.toolTip = lines + "\n──────────\nTotal: \(t)"
     }
 
     func resetSession() {
         guard isViewLoaded else { return }
         wordLabel.stringValue = ""
         totalLabel.stringValue = ""
+        view.toolTip = nil
         showListening()
     }
 

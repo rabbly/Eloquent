@@ -14,10 +14,13 @@ class FillerWordRecognizer {
     private var lastFiredAt: [String: Date] = [:]
     private let cooldownSeconds: TimeInterval = 1.5
 
-    // The last finalized transcript text we scanned. SpeechAnalyzer can re-deliver an
-    // accumulating final result (the same "um" appearing in successive finals), which
-    // would double-count. We compare against this to scan only genuinely new words.
+    // Deduplication for end-of-sentence mode: tracks the last finalized text scanned.
     private var lastFinalText = ""
+
+    // Deduplication for real-time mode: tracks the last tail string seen.
+    // If the tail hasn't changed (no new words arrived) we skip re-scanning,
+    // preventing double-counts when SpeechTranscriber re-delivers the same volatile result.
+    private var lastTailText = ""
 
     private init() {}
 
@@ -38,6 +41,7 @@ class FillerWordRecognizer {
 
         lastFiredAt.removeAll()
         lastFinalText = ""
+        lastTailText = ""
     }
 
     func restartWithNewLocale() {
@@ -168,6 +172,9 @@ class FillerWordRecognizer {
             .filter { !$0.isEmpty }
         guard !words.isEmpty else { return }
         let tail = words.suffix(3).map(strip).joined(separator: " ")
+        // Skip if the tail hasn't changed — same volatile result re-delivered.
+        guard tail != lastTailText else { return }
+        lastTailText = tail
         if let matched = FillerWordMatcher.matchPhrase(tail) {
             fire(matched)
         }
