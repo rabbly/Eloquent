@@ -506,22 +506,13 @@ class StatusBarController {
 
                 // Attach "Red flash text" as a flyout only on Menu Bar Flash.
                 if style == .menuBar {
-                    let optSub = NSMenu(title: style.displayName)
-                    let toggle = NSMenuItem(title: style.displayName, action: #selector(notificationStyleSelected(_:)), keyEquivalent: "")
-                    toggle.target = self
-                    toggle.representedObject = style.rawValue
-                    toggle.state = (style == current) ? .on : .off
-                    optSub.addItem(toggle)
-                    optSub.addItem(.separator())
+                    let optSub = NSMenu(title: "")
                     let redItem = NSMenuItem(title: "Red flash text", action: #selector(toggleRedFlash(_:)), keyEquivalent: "")
                     redItem.target = self
                     redItem.state = Settings.redFlashText ? .on : .off
                     optSub.addItem(redItem)
                     item.submenu = optSub
-                // Do NOT set item.action = nil here — AppKit already opens the flyout
-                // instead of firing the action when a submenu is present. Keeping the
-                // action set ensures the item stays enabled and its checkmark is tracked
-                // correctly by the clearing loop in notificationStyleSelected.
+                    // action is kept so the parent item is still directly clickable
                 }
 
                 sub.addItem(item)
