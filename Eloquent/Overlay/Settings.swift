@@ -33,11 +33,13 @@ enum Settings {
     enum NotificationStyle: String, CaseIterable {
         case banner
         case menuBar
+        case widget
 
         var displayName: String {
             switch self {
-            case .banner:  return "Floating banner"
+            case .banner:  return "Notification banner"
             case .menuBar: return "Menu bar flash"
+            case .widget:  return "Permanent widget"
             }
         }
     }
@@ -51,6 +53,33 @@ enum Settings {
             return .banner
         }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: notificationStyleKey) }
+    }
+
+    // MARK: - Permanent widget position
+
+    private static let widgetOriginXKey = "Eloquent.WidgetOriginX"
+    private static let widgetOriginYKey = "Eloquent.WidgetOriginY"
+
+    /// Saved on-screen origin of the permanent widget (global screen coordinates),
+    /// or nil if it has never been placed.
+    static var widgetOrigin: CGPoint? {
+        get {
+            let d = UserDefaults.standard
+            guard d.object(forKey: widgetOriginXKey) != nil,
+                  d.object(forKey: widgetOriginYKey) != nil else { return nil }
+            return CGPoint(x: d.double(forKey: widgetOriginXKey),
+                           y: d.double(forKey: widgetOriginYKey))
+        }
+        set {
+            let d = UserDefaults.standard
+            if let p = newValue {
+                d.set(p.x, forKey: widgetOriginXKey)
+                d.set(p.y, forKey: widgetOriginYKey)
+            } else {
+                d.removeObject(forKey: widgetOriginXKey)
+                d.removeObject(forKey: widgetOriginYKey)
+            }
+        }
     }
 
     // MARK: - Red flash text

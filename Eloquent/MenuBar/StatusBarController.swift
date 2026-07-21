@@ -518,6 +518,7 @@ class StatusBarController {
         @objc private func notificationStyleSelected(_ sender: NSMenuItem) {
             guard let raw = sender.representedObject as? String,
                   let style = Settings.NotificationStyle(rawValue: raw) else { return }
+            let previous = Settings.notificationStyle
             Settings.notificationStyle = style
             sender.menu?.items.forEach { item in
                 if item.action == #selector(notificationStyleSelected(_:)) {
@@ -525,6 +526,14 @@ class StatusBarController {
                 }
             }
             sender.state = .on
+
+            // Show or hide the widget when the user switches to/from widget mode.
+            if style == .widget && previous != .widget {
+                WidgetOverlay.shared.show()
+                WidgetOverlay.shared.setCallActive(isCallActive)
+            } else if style != .widget && previous == .widget {
+                WidgetOverlay.shared.hide()
+            }
         }
 
         @objc private func toggleRedFlash(_ sender: NSMenuItem) {
@@ -580,13 +589,17 @@ class StatusBarController {
         }
 
         @objc private func testNotification(_ sender: NSMenuItem) {
-            // Fire a couple of sample notifications so the banner design can be reviewed.
             let samples: [(String, Int)] = [("um", 1), ("like", 3), ("you know", 7)]
+            if Settings.notificationStyle == .widget {
+                WidgetOverlay.shared.show()
+                WidgetOverlay.shared.setCallActive(true)
+            }
             for (i, s) in samples.enumerated() {
                 DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 2.6) {
                     switch Settings.notificationStyle {
                     case .banner:  BannerOverlay.shared.show(word: s.0, count: s.1)
                     case .menuBar: self.flashInMenuBar(word: s.0, count: s.1)
+                    case .widget:  WidgetOverlay.shared.flagWord(s.0, count: s.1)
                     }
                 }
             }

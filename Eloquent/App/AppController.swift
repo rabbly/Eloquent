@@ -13,6 +13,11 @@ class AppController {
         statusBar = StatusBarController(stats: stats)
         wireFillerWordCallback()
         observeCallState()
+
+        // If widget mode was persisted, show it immediately at idle opacity.
+        if Settings.notificationStyle == .widget {
+            WidgetOverlay.shared.show()
+        }
     }
 
     private func wireFillerWordCallback() {
@@ -28,6 +33,8 @@ class AppController {
                     self.banner.show(word: word, count: count)
                 case .menuBar:
                     self.statusBar.flashInMenuBar(word: word, count: count)
+                case .widget:
+                    WidgetOverlay.shared.flagWord(word, count: count)
                 }
             }
         }
@@ -47,6 +54,12 @@ class AppController {
                     Log.verbose("🎯 [AppController] stopping FillerWordRecognizer")
                     FillerWordRecognizer.shared.stop()
                     self.statusBar.setCallActive(false)
+                }
+                // Widget reacts to call state regardless of notification style
+                // so the user can switch styles while the widget is visible.
+                if Settings.notificationStyle == .widget {
+                    if active { WidgetOverlay.shared.show() }
+                    WidgetOverlay.shared.setCallActive(active)
                 }
             }
             .store(in: &cancellables)
