@@ -194,7 +194,8 @@ final class WidgetContentView: NSViewController {
             expandedContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
             expandedContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
             expandedContainer.topAnchor.constraint(equalTo: container.topAnchor, constant: collapsedRowHeight),
-            expandedContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
+            // No bottomAnchor — expandedContainer height is determined by its content stack,
+            // and the panel is resized explicitly by WidgetOverlay when expanding.
         ])
 
         showNoSession()
