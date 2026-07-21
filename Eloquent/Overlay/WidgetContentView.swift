@@ -3,7 +3,7 @@ import AppKit
 @MainActor
 final class WidgetContentView: NSViewController {
 
-    // Drag callbacks (set by WidgetOverlay)
+    // Drag callbacks
     var onMouseDown: ((NSEvent) -> Void)?
     var onMouseDragged: ((NSEvent) -> Void)?
     var onMouseUp: ((NSEvent) -> Void)?
@@ -12,7 +12,7 @@ final class WidgetContentView: NSViewController {
     private let badgeSize: CGFloat = 36
     private let accent = NSColor(calibratedRed: 1.0, green: 0.52, blue: 0.28, alpha: 1.0)
 
-    // Background layers
+    // Background
     private let bg = NSView()
     private let effect = NSVisualEffectView()
     private let scrim = NSView()
@@ -23,14 +23,20 @@ final class WidgetContentView: NSViewController {
     private let badgeGradient = CAGradientLayer()
     private let waveform = WaveformView()
 
-    // Text
-    private let captionLabel = NSTextField(labelWithString: "FILLER WORD")
+    // State: no-session
+    private let noSessionLabel = NSTextField(labelWithString: "No active call")
+
+    // State: listening (session active, no words yet)
+    private let listeningLabel = NSTextField(labelWithString: "Listening…")
+
+    // State: words detected
+    private let captionLabel = NSTextField(labelWithString: "TOP WORD")
     private let wordLabel = NSTextField(labelWithString: "")
     private let countChip = NSView()
     private let countChipLabel = NSTextField(labelWithString: "")
+    private let totalLabel = NSTextField(labelWithString: "")
 
-    // Idle-state label shown when no word has been flagged yet
-    private let idleLabel = NSTextField(labelWithString: "Listening…")
+    private var textStack: NSStackView!
 
     override func loadView() {
         let container = NSView()
@@ -58,6 +64,7 @@ final class WidgetContentView: NSViewController {
         border.cornerRadius = pillRadius
         bg.layer?.addSublayer(border)
 
+        // Badge
         badge.wantsLayer = true
         badge.translatesAutoresizingMaskIntoConstraints = false
         badgeGradient.colors = [
@@ -73,25 +80,35 @@ final class WidgetContentView: NSViewController {
         waveform.translatesAutoresizingMaskIntoConstraints = false
         badge.addSubview(waveform)
 
-        // Idle label (shown before any word is detected)
-        idleLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        idleLabel.textColor = NSColor.white.withAlphaComponent(0.5)
-        configure(label: idleLabel)
-        container.addSubview(idleLabel)
+        // No-session state
+        noSessionLabel.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        noSessionLabel.textColor = NSColor.white.withAlphaComponent(0.4)
+        configure(label: noSessionLabel)
+        container.addSubview(noSessionLabel)
 
-        // Active: caption + word
-        captionLabel.attributedStringValue = NSAttributedString(string: "FILLER WORD", attributes: [
+        // Listening state
+        listeningLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        listeningLabel.textColor = NSColor.white.withAlphaComponent(0.5)
+        configure(label: listeningLabel)
+        container.addSubview(listeningLabel)
+
+        // Words-detected state
+        captionLabel.attributedStringValue = NSAttributedString(string: "TOP WORD", attributes: [
             .font: NSFont.systemFont(ofSize: 8, weight: .bold),
             .foregroundColor: accent,
             .kern: 1.5
         ])
         configure(label: captionLabel)
 
-        wordLabel.font = NSFont.systemFont(ofSize: 17, weight: .semibold)
+        wordLabel.font = NSFont.systemFont(ofSize: 16, weight: .semibold)
         wordLabel.textColor = .white
         configure(label: wordLabel)
 
-        let textStack = NSStackView(views: [captionLabel, wordLabel])
+        totalLabel.font = NSFont.systemFont(ofSize: 9, weight: .regular)
+        totalLabel.textColor = NSColor.white.withAlphaComponent(0.4)
+        configure(label: totalLabel)
+
+        textStack = NSStackView(views: [captionLabel, wordLabel, totalLabel])
         textStack.orientation = .vertical
         textStack.alignment = .leading
         textStack.spacing = 1
@@ -101,7 +118,6 @@ final class WidgetContentView: NSViewController {
         countChip.wantsLayer = true
         countChip.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.16).cgColor
         countChip.layer?.cornerRadius = 10
-        countChip.isHidden = true
         countChip.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(countChip)
 
@@ -136,8 +152,11 @@ final class WidgetContentView: NSViewController {
             waveform.widthAnchor.constraint(equalToConstant: 20),
             waveform.heightAnchor.constraint(equalToConstant: 16),
 
-            idleLabel.leadingAnchor.constraint(equalTo: badge.trailingAnchor, constant: 10),
-            idleLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            noSessionLabel.leadingAnchor.constraint(equalTo: badge.trailingAnchor, constant: 10),
+            noSessionLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+
+            listeningLabel.leadingAnchor.constraint(equalTo: badge.trailingAnchor, constant: 10),
+            listeningLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
 
             textStack.leadingAnchor.constraint(equalTo: badge.trailingAnchor, constant: 10),
             textStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
@@ -154,10 +173,7 @@ final class WidgetContentView: NSViewController {
             countChipLabel.trailingAnchor.constraint(equalTo: countChip.trailingAnchor, constant: -8),
         ])
 
-        // Show idle state by default
-        textStack.isHidden = true
-        countChip.isHidden = true
-
+        showNoSession()
         self.view = container
     }
 
@@ -167,27 +183,56 @@ final class WidgetContentView: NSViewController {
         badgeGradient.frame = badge.bounds
     }
 
-    func setListening(_ listening: Bool) {
+    // MARK: - State transitions
+
+    func showNoSession() {
         guard isViewLoaded else { return }
-        idleLabel.isHidden = !listening || !wordLabel.stringValue.isEmpty
+        noSessionLabel.isHidden = false
+        listeningLabel.isHidden = true
+        textStack.isHidden = true
+        countChip.isHidden = true
     }
 
-    func flag(word: String, count: Int) {
+    func showListening() {
         guard isViewLoaded else { return }
-        wordLabel.stringValue = word
-        idleLabel.isHidden = true
-        if let stack = wordLabel.superview {
-            stack.isHidden = false
+        noSessionLabel.isHidden = true
+        listeningLabel.isHidden = false
+        textStack.isHidden = true
+        countChip.isHidden = true
+    }
+
+    func updateStats(_ stats: SessionStats) {
+        guard isViewLoaded else { return }
+        noSessionLabel.isHidden = true
+        listeningLabel.isHidden = true
+
+        if stats.total() == 0 {
+            showListening()
+            return
         }
-        countChipLabel.stringValue = "×\(count)"
-        countChip.isHidden = count < 2
+
+        guard let top = stats.summary().first else { return }
+        wordLabel.stringValue = top.word
+        countChipLabel.stringValue = "×\(top.count)"
+        countChip.isHidden = top.count < 2
+        let t = stats.total()
+        totalLabel.stringValue = "\(t) total"
+        totalLabel.isHidden = false
+        textStack.isHidden = false
         waveform.pulse()
+    }
+
+    func resetSession() {
+        guard isViewLoaded else { return }
+        wordLabel.stringValue = ""
+        totalLabel.stringValue = ""
+        showListening()
     }
 
     func startWaveform() { guard isViewLoaded else { return }; waveform.startAnimating() }
     func stopWaveform() { guard isViewLoaded else { return }; waveform.stopAnimating() }
 
-    // MARK: - Mouse handling for drag
+    // MARK: - Mouse handling
 
     override func mouseDown(with event: NSEvent) { onMouseDown?(event) }
     override func mouseDragged(with event: NSEvent) { onMouseDragged?(event) }

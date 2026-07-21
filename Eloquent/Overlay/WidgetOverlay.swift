@@ -53,6 +53,8 @@ final class WidgetOverlay {
         // Force the lazy view load before the panel is shown, otherwise the panel
         // appears as an empty zero-size window.
         contentVC.loadViewIfNeeded()
+        // Set the correct initial content before the panel appears.
+        if isCallActive { contentVC.showListening() } else { contentVC.showNoSession() }
         panel.setContentSize(NSSize(width: width, height: height))
         panel.alphaValue = 0
         panel.orderFrontRegardless()
@@ -75,18 +77,29 @@ final class WidgetOverlay {
 
     func setCallActive(_ active: Bool) {
         isCallActive = active
-        contentVC.setListening(active)
         guard isShowing else { return }
+        if active {
+            contentVC.resetSession()
+            contentVC.showListening()
+            contentVC.startWaveform()
+        } else {
+            contentVC.showNoSession()
+            contentVC.stopWaveform()
+        }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.3
             panel.animator().alphaValue = active ? activeAlpha : idleAlpha
         }
-        if active { contentVC.startWaveform() } else { contentVC.stopWaveform() }
     }
 
-    func flagWord(_ word: String, count: Int) {
+    func updateStats(_ stats: SessionStats) {
         guard isShowing, isCallActive else { return }
-        contentVC.flag(word: word, count: count)
+        contentVC.updateStats(stats)
+    }
+
+    func resetSession() {
+        guard isShowing else { return }
+        contentVC.resetSession()
     }
 
     // MARK: - Drag

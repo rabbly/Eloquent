@@ -34,7 +34,7 @@ class AppController {
                 case .menuBar:
                     self.statusBar.flashInMenuBar(word: word, count: count)
                 case .widget:
-                    WidgetOverlay.shared.flagWord(word, count: count)
+                    WidgetOverlay.shared.updateStats(self.stats)
                 }
             }
         }
@@ -56,7 +56,6 @@ class AppController {
                     self.statusBar.setCallActive(false)
                 }
                 // Set call state BEFORE show() so the widget reads isCallActive correctly
-                // and animates directly to the right alpha, avoiding an idle→active flicker.
                 if Settings.notificationStyle == .widget {
                     WidgetOverlay.shared.setCallActive(active)
                     if active { WidgetOverlay.shared.show() }
@@ -73,6 +72,9 @@ class AppController {
                 guard let self else { return }
                 self.stats.reset()
                 self.statusBar.update(stats: self.stats)
+                if Settings.notificationStyle == .widget {
+                    WidgetOverlay.shared.resetSession()
+                }
             }
             .store(in: &cancellables)
     }

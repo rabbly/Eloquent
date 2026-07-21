@@ -596,17 +596,23 @@ class StatusBarController {
         }
 
         @objc private func testNotification(_ sender: NSMenuItem) {
-            let samples: [(String, Int)] = [("um", 1), ("like", 3), ("you know", 7)]
+            let samples: [String] = ["um", "like", "you know", "um", "like", "um"]
             if Settings.notificationStyle == .widget {
                 WidgetOverlay.shared.show()
                 WidgetOverlay.shared.setCallActive(true)
             }
-            for (i, s) in samples.enumerated() {
-                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 2.6) {
+            var demoStats = SessionStats()
+            for (i, word) in samples.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 1.4) {
                     switch Settings.notificationStyle {
-                    case .banner:  BannerOverlay.shared.show(word: s.0, count: s.1)
-                    case .menuBar: self.flashInMenuBar(word: s.0, count: s.1)
-                    case .widget:  WidgetOverlay.shared.flagWord(s.0, count: s.1)
+                    case .banner:
+                        demoStats.record(word)
+                        BannerOverlay.shared.show(word: word, count: demoStats.count(for: word))
+                    case .menuBar:
+                        self.flashInMenuBar(word: word, count: 1)
+                    case .widget:
+                        demoStats.record(word)
+                        WidgetOverlay.shared.updateStats(demoStats)
                     }
                 }
             }
