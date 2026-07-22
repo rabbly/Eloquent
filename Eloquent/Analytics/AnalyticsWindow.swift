@@ -299,7 +299,21 @@ final class AnalyticsViewController: NSViewController {
                                   String(format: "%.2f", entry.rateMetric),
                                   tStr, trendColor: tCol)
             let trendDesc = tr > 0 ? "improving (less frequent recently)" : tr < 0 ? "worsening (more frequent recently)" : "steady"
-            dataRow.toolTip = "\"\(entry.word)\": said \(entry.total) times total · \(String(format: "%.2f", entry.rateMetric)) \(entry.rateLabel) · trend: \(trendDesc)"
+
+            // Build an informative tooltip with corpus context where available
+            let baseline = AnalyticsStore.corpusBaseline[entry.word]
+            var tipLines = ["\"\(entry.word)\"  —  \(entry.total) detections total"]
+            tipLines.append("Your rate: \(String(format: "%.2f", entry.rateMetric)) \(entry.rateLabel)")
+            if let b = baseline {
+                let lift = entry.rateMetric / b
+                let liftStr = lift >= 10 ? String(format: "%.0f×", lift) : String(format: "%.1f×", lift)
+                tipLines.append("Typical rate: \(String(format: "%.2f", b)) / 100 words (SUBTLEX-US)")
+                tipLines.append("You use this ~\(liftStr) more than typical conversational English")
+            } else {
+                tipLines.append("This word is in your configured filler list — no corpus baseline available")
+            }
+            tipLines.append("Trend: \(trendDesc) (last 7 sessions vs previous 7)")
+            dataRow.toolTip = tipLines.joined(separator: "\n")
             t.addArrangedSubview(dataRow)
         }
         return inset(t, v: 0)
