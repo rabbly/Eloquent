@@ -260,4 +260,16 @@ enum Settings {
     static var monitoredBundlePrefixes: [String] {
         allApps.filter { enabledApps.contains($0.id) }.flatMap { $0.bundlePrefixes }
     }
+
+    // MARK: - Dismissed candidate fillers
+
+    private static let dismissedCandidatesKey = "Eloquent.DismissedCandidates"
+
+    static var dismissedCandidates: Set<String> {
+        get {
+            let stored = UserDefaults.standard.array(forKey: dismissedCandidatesKey) as? [String] ?? []
+            return Set(stored)
+        }
+        set { UserDefaults.standard.set(Array(newValue), forKey: dismissedCandidatesKey) }
+    }
 }

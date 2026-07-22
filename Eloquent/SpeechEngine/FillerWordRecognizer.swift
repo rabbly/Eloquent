@@ -18,9 +18,25 @@ class FillerWordRecognizer {
     private var lastFinalText = ""
 
     // Deduplication for real-time mode: tracks the last tail string seen.
-    // If the tail hasn't changed (no new words arrived) we skip re-scanning,
-    // preventing double-counts when SpeechTranscriber re-delivers the same volatile result.
     private var lastTailText = ""
+
+    // Word frequency histogram for candidate filler discovery.
+    // Stores counts of all non-stop content words seen during the session.
+    // Privacy: only short word tokens (≤12 chars, alpha-only) are tallied — no sentences.
+    private(set) var sessionWordFrequencies: [String: Int] = [:]
+
+    private static let stopWords: Set<String> = [
+        "i", "you", "we", "he", "she", "they", "it", "me", "him", "her", "us", "them",
+        "the", "a", "an", "this", "that", "these", "those",
+        "and", "or", "but", "nor", "so", "yet", "for",
+        "in", "on", "at", "to", "for", "of", "by", "as", "from", "with", "into", "about",
+        "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did",
+        "will", "would", "could", "should", "can", "may", "might", "shall", "must",
+        "not", "no", "if", "then", "when", "there", "here", "than", "just", "up",
+        "out", "what", "how", "who", "which", "where", "my", "your", "his", "our", "their",
+        "said", "also", "very", "more", "all", "some", "any", "each", "other", "than",
+        "oh", "ok", "okay", "yeah", "yes", "no", "nope", "yep",
+    ]
 
     private init() {}
 
@@ -42,6 +58,7 @@ class FillerWordRecognizer {
         lastFiredAt.removeAll()
         lastFinalText = ""
         lastTailText = ""
+        sessionWordFrequencies.removeAll()
     }
 
     func restartWithNewLocale() {
@@ -152,17 +169,23 @@ class FillerWordRecognizer {
             if i + 1 < words.count {
                 let pair = "\(strip(words[i])) \(strip(words[i + 1]))"
                 if let matched = FillerWordMatcher.matchPhrase(pair), matched.contains(" ") {
-                    fire(matched)
+                    fire(matched, phrase: pair, context: newPortion)
                     i += 2
                     continue
                 }
             }
             let single = strip(words[i])
             if let matched = FillerWordMatcher.matchPhrase(single), !matched.contains(" ") {
-                fire(matched)
+                // Build a small window (prev + word + next) for contextual filtering
+                let prev = i > 0 ? strip(words[i-1]) : ""
+                let next = i + 1 < words.count ? strip(words[i+1]) : ""
+                let window = [prev, single, next].filter { !$0.isEmpty }.joined(separator: " ")
+                fire(matched, phrase: window, context: newPortion)
             }
             i += 1
         }
+        // Tally all content words for candidate filler discovery.
+        tallyWords(words)
     }
 
     private func scanTail(_ result: SpeechTranscriber.Result) {
@@ -172,11 +195,32 @@ class FillerWordRecognizer {
             .filter { !$0.isEmpty }
         guard !words.isEmpty else { return }
         let tail = words.suffix(3).map(strip).joined(separator: " ")
-        // Skip if the tail hasn't changed — same volatile result re-delivered.
         guard tail != lastTailText else { return }
         lastTailText = tail
         if let matched = FillerWordMatcher.matchPhrase(tail) {
-            fire(matched)
+            fire(matched, phrase: tail, context: tail)
+        }
+        // Tally the new words in the tail for candidate filler discovery.
+        tallyWords(Array(words.suffix(3)))
+    }
+
+    private static let letterSet = CharacterSet.letters
+
+    /// Tally content words (1-grams and 2-grams) into the session frequency histogram.
+    private func tallyWords(_ words: [String]) {
+        let tokens = words.map(strip).filter { w in
+            guard !w.isEmpty, w.count >= 2, w.count <= 12 else { return false }
+            guard !FillerWordRecognizer.stopWords.contains(w) else { return false }
+            // Only keep purely alphabetic tokens (safe scalar check)
+            return w.unicodeScalars.allSatisfy { FillerWordRecognizer.letterSet.contains($0) }
+        }
+        for token in tokens {
+            sessionWordFrequencies[token, default: 0] += 1
+        }
+        guard tokens.count >= 2 else { return }
+        for i in 0..<(tokens.count - 1) {
+            let bigram = "\(tokens[i]) \(tokens[i+1])"
+            sessionWordFrequencies[bigram, default: 0] += 1
         }
     }
 
@@ -184,8 +228,13 @@ class FillerWordRecognizer {
         word.trimmingCharacters(in: .punctuationCharacters)
     }
 
-    private func fire(_ word: String) {
+    private func fire(_ word: String, phrase: String = "", context: String = "") {
         guard canFire(word: word) else { return }
+        // Contextual check: suppress ambiguous words used grammatically.
+        guard ContextualFilter.isFiller(word, inPhrase: phrase, context: context) else {
+            Log.verbose("🔇 [FillerWordRecognizer] suppressed '\(word)' (grammatical use in: \"\(phrase)\")")
+            return
+        }
         lastFiredAt[word] = Date()
         onFillerWordDetected?(word)
     }

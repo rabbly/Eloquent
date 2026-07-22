@@ -8,6 +8,7 @@ class AppController {
     private let banner = BannerOverlay.shared
     private var stats = SessionStats()
     private var cancellables = Set<AnyCancellable>()
+    private var sessionStartDate: Date?
 
     init() {
         statusBar = StatusBarController(stats: stats)
@@ -49,8 +50,16 @@ class AppController {
                 Log.verbose("🎯 [AppController] callInProgress changed -> \(active ? "ACTIVE" : "IDLE")")
                 if active {
                     self.statusBar.setCallActive(true)
+                    self.sessionStartDate = Date()
                     FillerWordRecognizer.shared.start()
                 } else {
+                    // Capture everything BEFORE stop() clears the recognizer state.
+                    let snapshot = self.stats
+                    let freqs = FillerWordRecognizer.shared.sessionWordFrequencies
+                    let start = self.sessionStartDate ?? Date()
+                    AnalyticsStore.shared.recordSession(snapshot, wordFrequencies: freqs,
+                                                        startDate: start, endDate: Date())
+
                     Log.verbose("🎯 [AppController] stopping FillerWordRecognizer")
                     FillerWordRecognizer.shared.stop()
                     self.statusBar.setCallActive(false)
@@ -70,6 +79,22 @@ class AppController {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self else { return }
+                // A new session is starting — record the outgoing session's data
+                // BEFORE stop() clears the recognizer. (This covers mid-call resets,
+                // e.g. toggling manual mode while a call is active.)
+                let snapshot = self.stats
+                let freqs = FillerWordRecognizer.shared.sessionWordFrequencies
+                let start = self.sessionStartDate ?? Date()
+                // Only record if there's data AND we're still in an active call
+                // (if the call already ended, the callInProgress sink recorded it)
+                if snapshot.total() > 0 {
+                    let callActive = callDetector.callInProgress
+                    if callActive {
+                        AnalyticsStore.shared.recordSession(snapshot, wordFrequencies: freqs,
+                                                            startDate: start, endDate: Date())
+                    }
+                }
+                self.sessionStartDate = Date()
                 self.stats.reset()
                 self.statusBar.update(stats: self.stats)
                 if Settings.notificationStyle == .widget {

@@ -122,20 +122,31 @@ final class WidgetOverlay {
 
     private func expandToShowSummary() {
         collapseTimer?.invalidate()
-        isExpanded = true
 
-        let expandedH = contentVC.showExpanded(stats: lastStats)
-        let totalH = collapsedHeight + expandedH
-        let origin = panel.frame.origin
-        let newOrigin = NSPoint(x: origin.x, y: origin.y - (totalH - collapsedHeight))
+        if isExpanded {
+            // Already expanded — refresh rows only, don't touch the panel frame.
+            _ = contentVC.showExpanded(stats: lastStats)
+        } else {
+            isExpanded = true
+            let naturalExpandedH = contentVC.showExpanded(stats: lastStats)
+            let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens[0]
+            let maxTotalH = screen.visibleFrame.height - 40
+            let clampedTotalH = min(collapsedHeight + naturalExpandedH, maxTotalH)
+            let clampedExpandedH = clampedTotalH - collapsedHeight
 
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.22
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().setFrame(
-                NSRect(x: newOrigin.x, y: newOrigin.y, width: width, height: totalH),
-                display: true
-            )
+            contentVC.applyExpandedHeight(clampedExpandedH)
+
+            let origin = panel.frame.origin
+            let newY = max(screen.visibleFrame.minY + 8, origin.y - (clampedTotalH - collapsedHeight))
+
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.22
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().setFrame(
+                    NSRect(x: origin.x, y: newY, width: width, height: clampedTotalH),
+                    display: true
+                )
+            }
         }
 
         collapseTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in

@@ -34,8 +34,9 @@ final class WidgetContentView: NSViewController {
     private var textStack: NSStackView!
 
     // Expanded section (appears below the collapsed row on click)
-    private let expandedContainer = NSView()
+    private let expandedScroll = NSScrollView()
     private var expandedRowsStack: NSStackView?
+    private var expandedHeightConstraint: NSLayoutConstraint?
 
     // Flash
     private var flashRevert: DispatchWorkItem?
@@ -133,10 +134,15 @@ final class WidgetContentView: NSViewController {
         configure(label: countChipLabel)
         countChip.addSubview(countChipLabel)
 
-        // Expanded container — sits below the collapsed row
-        expandedContainer.translatesAutoresizingMaskIntoConstraints = false
-        expandedContainer.isHidden = true
-        container.addSubview(expandedContainer)
+        // Expanded scroll view — sits below the collapsed row
+        expandedScroll.hasVerticalScroller = true
+        expandedScroll.autohidesScrollers = true
+        expandedScroll.drawsBackground = false
+        expandedScroll.borderType = .noBorder
+        expandedScroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+        expandedScroll.translatesAutoresizingMaskIntoConstraints = false
+        expandedScroll.isHidden = true
+        container.addSubview(expandedScroll)
 
         // The badge centerY is always at collapsedRowHeight/2 from the top.
         // This keeps it in the same position whether collapsed or expanded.
@@ -190,12 +196,11 @@ final class WidgetContentView: NSViewController {
             countChipLabel.leadingAnchor.constraint(equalTo: countChip.leadingAnchor, constant: 8),
             countChipLabel.trailingAnchor.constraint(equalTo: countChip.trailingAnchor, constant: -8),
 
-            // Expanded container starts immediately below the collapsed row
-            expandedContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            expandedContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            expandedContainer.topAnchor.constraint(equalTo: container.topAnchor, constant: collapsedRowHeight),
-            // No bottomAnchor — expandedContainer height is determined by its content stack,
-            // and the panel is resized explicitly by WidgetOverlay when expanding.
+            // Expanded scroll view starts immediately below the collapsed row
+            expandedScroll.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            expandedScroll.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            expandedScroll.topAnchor.constraint(equalTo: container.topAnchor, constant: collapsedRowHeight),
+            // Height is set programmatically via applyExpandedHeight(_:)
         ])
 
         showNoSession()
@@ -216,7 +221,7 @@ final class WidgetContentView: NSViewController {
         listeningLabel.isHidden = true
         textStack.isHidden = true
         countChip.isHidden = true
-        expandedContainer.isHidden = true
+        expandedScroll.isHidden = true
     }
 
     func showListening() {
@@ -225,12 +230,12 @@ final class WidgetContentView: NSViewController {
         listeningLabel.isHidden = false
         textStack.isHidden = true
         countChip.isHidden = true
-        expandedContainer.isHidden = true
+        expandedScroll.isHidden = true
     }
 
     func showCollapsed() {
         guard isViewLoaded else { return }
-        expandedContainer.isHidden = true
+        expandedScroll.isHidden = true
         // Restore the correct collapsed state based on what we last had
         if latestStats.total() > 0 {
             updateStats(latestStats, newWord: nil)
@@ -260,13 +265,13 @@ final class WidgetContentView: NSViewController {
         if let new = newWord, !new.isEmpty {
             flashRevert?.cancel()
             wordLabel.stringValue = new
-            wordLabel.textColor = accent
+            wordLabel.textColor = .white   // text stays white; background does the signalling
             waveform.pulse()
+            flashBackground()
 
             let revert = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 self.wordLabel.stringValue = top.word
-                self.wordLabel.textColor = .white
                 self.countChipLabel.stringValue = "×\(top.count)"
                 self.countChip.isHidden = top.count < 2
             }
@@ -276,6 +281,23 @@ final class WidgetContentView: NSViewController {
             wordLabel.stringValue = top.word
             wordLabel.textColor = .white
         }
+    }
+
+    private func flashBackground() {
+        guard let layer = scrim.layer else { return }
+        let flashColor = NSColor(calibratedRed: 0.45, green: 0.22, blue: 0.05, alpha: 0.95).cgColor
+        let normalColor = NSColor(calibratedWhite: 0.06, alpha: 0.92).cgColor
+
+        let anim = CAKeyframeAnimation(keyPath: "backgroundColor")
+        anim.values = [normalColor, flashColor, normalColor]
+        anim.keyTimes = [0, 0.2, 1.0]
+        anim.duration = 0.8
+        anim.timingFunctions = [
+            CAMediaTimingFunction(name: .easeIn),
+            CAMediaTimingFunction(name: .easeOut),
+        ]
+        anim.isRemovedOnCompletion = true
+        layer.add(anim, forKey: "bgFlash")
     }
 
     // MARK: - Expanded state
@@ -292,18 +314,18 @@ final class WidgetContentView: NSViewController {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 6
+        stack.spacing = 2
         stack.translatesAutoresizingMaskIntoConstraints = false
-        expandedContainer.addSubview(stack)
+        expandedScroll.documentView = stack
 
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: expandedContainer.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: expandedContainer.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: expandedContainer.topAnchor),
+            stack.widthAnchor.constraint(equalTo: expandedScroll.widthAnchor),
         ])
 
         // Header
         let header = makeLabel("THIS SESSION", size: 8, weight: .bold, color: accent, kern: 1.5)
+        header.translatesAutoresizingMaskIntoConstraints = false
+        header.heightAnchor.constraint(equalToConstant: 22).isActive = true
         stack.addArrangedSubview(header)
 
         let divider = NSView()
@@ -320,16 +342,21 @@ final class WidgetContentView: NSViewController {
         }
 
         // Total row
-        stack.addArrangedSubview(NSView()) // small spacer
         stack.addArrangedSubview(makeRow(word: "Total", count: stats.total(), bold: true))
 
-        expandedRowsStack = stack
-        expandedContainer.isHidden = false
-        // Keep the top row (badge + word + count chip) visible — don't hide textStack/countChip.
+        // Bottom spacer with explicit height
+        let bottomSpacer = NSView()
+        bottomSpacer.translatesAutoresizingMaskIntoConstraints = false
+        bottomSpacer.heightAnchor.constraint(equalToConstant: 12).isActive = true
+        stack.addArrangedSubview(bottomSpacer)
 
-        // Calculate height: header + divider + (rows * rowHeight) + total + padding
+        expandedRowsStack = stack
+        expandedScroll.isHidden = false
+
+        // height = header(22) + divider(1) + rows*(20+spacing) + total(20) + bottomSpacer(12)
+        let rowSpacing = stack.spacing
         let rowCount = CGFloat(stats.summary().count + 1) // words + total
-        let expandedH = 20 + 1 + 6 + rowCount * 22 + 16
+        let expandedH = 22 + 1 + rowSpacing + rowCount * (20 + rowSpacing) + 12
         return expandedH
     }
 
@@ -373,6 +400,15 @@ final class WidgetContentView: NSViewController {
         }
         l.isBezeled = false; l.isEditable = false; l.isSelectable = false; l.drawsBackground = false
         return l
+    }
+
+    /// Called by WidgetOverlay to constrain the scroll view to the clamped height.
+    func applyExpandedHeight(_ h: CGFloat) {
+        guard isViewLoaded else { return }
+        expandedHeightConstraint?.isActive = false
+        let c = expandedScroll.heightAnchor.constraint(equalToConstant: h)
+        c.isActive = true
+        expandedHeightConstraint = c
     }
 
     func resetSession() {

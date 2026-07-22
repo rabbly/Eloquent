@@ -126,6 +126,11 @@ class StatusBarController {
         menu.addItem(statsMenuItem)
         updateStatsMenuItem()
 
+        let analyticsItem = NSMenuItem(title: "Analytics…", action: #selector(openAnalytics(_:)), keyEquivalent: "")
+        analyticsItem.target = self
+        analyticsItem.image = symbolImage("chart.bar")
+        menu.addItem(analyticsItem)
+
         menu.addItem(.separator())
         addFillerWordsSubmenu()
         addMonitoredAppsSubmenu()
@@ -161,8 +166,11 @@ class StatusBarController {
         }
     }
 
-    @objc private func toggleManualMode(_ sender: NSMenuItem) {
-        let newValue = (sender.state != .on)
+    @objc private func openAnalytics(_ sender: NSMenuItem) {
+        AnalyticsWindow.shared.show()
+    }
+
+    @objc private func toggleManualMode(_ sender: NSMenuItem) {        let newValue = (sender.state != .on)
         Settings.manualMode = newValue
         sender.state = newValue ? .on : .off
         NotificationCenter.default.post(name: Settings.manualModeChanged, object: nil)
