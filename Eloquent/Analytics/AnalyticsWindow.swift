@@ -360,11 +360,22 @@ final class AnalyticsViewController: NSViewController {
 
         let wordL = tf(candidate.word, size: 13, weight: .semibold, color: P.textPrim)
         let baseline = AnalyticsStore.corpusBaseline[candidate.word] ?? 0.05
-        let ratePerHundred = candidate.avgPerSession   // avgPerSession stores mean rate/100w
+        let ratePerHundred = candidate.avgPerSession
         let lift = ratePerHundred / baseline
         let liftStr = lift >= 10 ? String(format: "%.0f×", lift) : String(format: "%.1f×", lift)
         let metaL = tf("~\(liftStr) above typical · \(candidate.sessionsCount) session\(candidate.sessionsCount == 1 ? "" : "s")",
                        size: 11, color: P.textTert)
+
+        // ⓘ button opens a popover with the full methodology + clickable source links
+        let infoBtn = NSButton(title: "ⓘ", target: self, action: #selector(infoBtnTapped(_:)))
+        infoBtn.bezelStyle = .recessed
+        infoBtn.isBordered = false
+        infoBtn.font = NSFont.systemFont(ofSize: 13)
+        infoBtn.contentTintColor = P.textTert
+        infoBtn.identifier = NSUserInterfaceItemIdentifier(candidate.word)
+        // Stash the lift/rate info in the button's toolTip for retrieval in the action
+        infoBtn.toolTip = "\(liftStr)|\(String(format: "%.2f", ratePerHundred))|\(String(format: "%.2f", baseline))"
+        infoBtn.translatesAutoresizingMaskIntoConstraints = false
 
         let addBtn = NSButton(title: "Add to list", target: self, action: #selector(addCandidateTapped(_:)))
         addBtn.bezelStyle = .rounded
@@ -378,7 +389,7 @@ final class AnalyticsViewController: NSViewController {
         dismissBtn.contentTintColor = P.textTert
         dismissBtn.identifier = NSUserInterfaceItemIdentifier(candidate.word)
 
-        for v in [wordL, metaL, addBtn, dismissBtn] {
+        for v in [wordL, metaL, infoBtn, addBtn, dismissBtn] {
             v.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(v)
         }
@@ -387,12 +398,32 @@ final class AnalyticsViewController: NSViewController {
             wordL.topAnchor.constraint(equalTo: row.topAnchor, constant: 8),
             metaL.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 24),
             metaL.topAnchor.constraint(equalTo: wordL.bottomAnchor, constant: 2),
+            infoBtn.leadingAnchor.constraint(equalTo: metaL.trailingAnchor, constant: 4),
+            infoBtn.centerYAnchor.constraint(equalTo: metaL.centerYAnchor),
             dismissBtn.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -16),
             dismissBtn.centerYAnchor.constraint(equalTo: row.centerYAnchor),
             addBtn.trailingAnchor.constraint(equalTo: dismissBtn.leadingAnchor, constant: -8),
             addBtn.centerYAnchor.constraint(equalTo: row.centerYAnchor),
         ])
         return row
+    }
+
+    @objc private func infoBtnTapped(_ sender: NSButton) {
+        guard let word = sender.identifier?.rawValue else { return }
+        // Parse stashed stats from toolTip (liftStr|userRate|baseline)
+        let parts = (sender.toolTip ?? "").split(separator: "|").map(String.init)
+        let liftStr   = parts.first ?? "?"
+        let userRate  = parts.count > 1 ? parts[1] : "?"
+        let baseline  = parts.count > 2 ? parts[2] : "?"
+
+        let popover = NSPopover()
+        popover.behavior = .semitransient
+        popover.animates = true
+        let vc = SourceInfoViewController(
+            word: word, liftStr: liftStr, userRate: userRate, baseline: baseline)
+        popover.contentViewController = vc
+        popover.contentSize = NSSize(width: 380, height: 320)
+        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
     }
 
     @objc private func addCandidateTapped(_ sender: NSButton) {
@@ -844,5 +875,112 @@ private final class BarChartView: NSView {
         ("\(Int(maxTotal))" as NSString).draw(
             at: NSPoint(x: hPad, y: chartRect.maxY - 10),
             withAttributes: [.font: NSFont.systemFont(ofSize: 8), .foregroundColor: P.textTert])
+    }
+}
+
+// MARK: - Source info popover
+
+@MainActor
+private final class SourceInfoViewController: NSViewController {
+    private let word: String
+    private let liftStr: String
+    private let userRate: String
+    private let baseline: String
+
+    init(word: String, liftStr: String, userRate: String, baseline: String) {
+        self.word = word; self.liftStr = liftStr
+        self.userRate = userRate; self.baseline = baseline
+        super.init(nibName: nil, bundle: nil)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func loadView() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 320))
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 1).cgColor
+        view = container
+
+        let scroll = NSScrollView(frame: container.bounds)
+        scroll.autoresizingMask = [.width, .height]
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
+        container.addSubview(scroll)
+
+        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 360, height: 800))
+        tv.isEditable = false
+        tv.isSelectable = true
+        tv.drawsBackground = false
+        tv.textContainerInset = NSSize(width: 16, height: 16)
+        tv.isAutomaticLinkDetectionEnabled = true
+        tv.textStorage?.setAttributedString(buildContent())
+        tv.sizeToFit()
+
+        scroll.documentView = tv
+        scroll.contentView.scroll(to: .zero)
+    }
+
+    private func buildContent() -> NSAttributedString {
+        let result = NSMutableAttributedString()
+
+        func add(_ text: String, size: CGFloat = 12, weight: NSFont.Weight = .regular,
+                 color: NSColor = NSColor(calibratedWhite: 1, alpha: 0.85)) {
+            result.append(NSAttributedString(string: text, attributes: [
+                .font: NSFont.systemFont(ofSize: size, weight: weight),
+                .foregroundColor: color,
+            ]))
+        }
+
+        let accent = NSColor(calibratedRed: 1.0, green: 0.52, blue: 0.28, alpha: 1.0)
+
+        add("Why \"\(word)\" is flagged\n", size: 14, weight: .bold, color: .white)
+        add("\n")
+        add("You use this word ~\(liftStr) more often than in typical conversational English.\n\n",
+            size: 12, color: NSColor(calibratedWhite: 1, alpha: 0.75))
+
+        add("Your rate:  ", size: 11, weight: .semibold, color: NSColor(calibratedWhite: 1, alpha: 0.5))
+        add("\(userRate) per 100 words\n", size: 11, color: .white)
+        add("Typical:  ", size: 11, weight: .semibold, color: NSColor(calibratedWhite: 1, alpha: 0.5))
+        add("\(baseline) per 100 words (SUBTLEX-US corpus)\n\n", size: 11, color: .white)
+
+        add("HOW THIS IS CALCULATED\n", size: 10, weight: .bold, color: accent)
+        add("Eloquent measures two things:\n", size: 11, color: NSColor(calibratedWhite: 1, alpha: 0.7))
+        add("1. Lift — how far above the corpus baseline your rate is.\n", size: 11)
+        add("2. Consistency (CV) — whether the word appears at a stable rate across sessions. Filler words are topic-independent; content words vary. Low CV = habitual use.\n\n", size: 11)
+
+        add("SOURCES\n", size: 10, weight: .bold, color: accent)
+
+        // Clickable links using NSAttributedString link attribute
+        let sources: [(String, String)] = [
+            ("Brysbaert & New (2009). Moving beyond Kučera and Francis: A critical evaluation of current word frequency norms. Behavior Research Methods, 41(4), 977–990.",
+             "https://doi.org/10.3758/BRM.41.4.977"),
+            ("SUBTLEX-US word frequency norms (51M words of American English speech).",
+             "https://www.ugent.be/pp/experimentele-psychologie/en/research/subtlex-us"),
+            ("Tottie (2011). Uh and Um as sociolinguistic markers in British English. International Journal of Corpus Linguistics, 16(2), 173–197.",
+             "https://doi.org/10.1075/ijcl.16.2.02tot"),
+        ]
+
+        for (title, url) in sources {
+            result.append(NSAttributedString(string: "• ", attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.6),
+            ]))
+            // Title as plain text
+            result.append(NSAttributedString(string: title + "\n  ", attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.75),
+            ]))
+            // URL as a clickable link
+            if let linkURL = URL(string: url) {
+                result.append(NSAttributedString(string: url + "\n\n", attributes: [
+                    .font: NSFont.systemFont(ofSize: 10),
+                    .foregroundColor: accent,
+                    .link: linkURL,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue,
+                ]))
+            }
+        }
+
+        return result
     }
 }

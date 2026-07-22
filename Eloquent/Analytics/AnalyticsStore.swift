@@ -200,35 +200,41 @@ final class AnalyticsStore {
     // MARK: - Candidate filler detection
 
     /// Corpus baseline rates (per 100 words) from SUBTLEX-US conversational speech.
-    /// Only words that *could* be fillers are included; common content words are absent,
-    /// so any word not in this table uses a conservative default of 0.05.
-    /// Words with a baseline above 0.5 are also excluded (too common to be meaningful).
-    static let corpusBaseline: [String: Double] = [
+    /// Built as a function (not a giant literal) to avoid Swift initialiser limits.
+    static let corpusBaseline: [String: Double] = buildCorpusBaseline()
+
+    private static func buildCorpusBaseline() -> [String: Double] {
+        var d: [String: Double] = [:]
         // Discourse markers / hedges
-        "basically": 0.04, "honestly": 0.02, "literally": 0.03, "obviously": 0.04,
-        "clearly": 0.03, "essentially": 0.02, "technically": 0.02, "actually": 0.10,
-        "seriously": 0.03, "genuinely": 0.01, "frankly": 0.01, "admittedly": 0.01,
-        "apparently": 0.03, "supposedly": 0.01, "theoretically": 0.01,
+        d["basically"] = 0.04; d["honestly"] = 0.02; d["literally"] = 0.03
+        d["obviously"] = 0.04; d["clearly"] = 0.03; d["essentially"] = 0.02
+        d["technically"] = 0.02; d["actually"] = 0.10; d["seriously"] = 0.03
+        d["genuinely"] = 0.01; d["frankly"] = 0.01; d["admittedly"] = 0.01
+        d["apparently"] = 0.03; d["supposedly"] = 0.01; d["theoretically"] = 0.01
         // Fillers / utterance restarts
-        "anyway": 0.03, "whatever": 0.04, "regardless": 0.02, "anyway": 0.03,
-        "anyhow": 0.01, "nevermind": 0.01,
+        d["anyway"] = 0.03; d["whatever"] = 0.04; d["regardless"] = 0.02
+        d["anyhow"] = 0.01; d["nevermind"] = 0.01
         // Hesitation / hedge bigrams
-        "kind of": 0.06, "sort of": 0.05, "i mean": 0.15, "i think": 0.20,
-        "you know": 0.18, "you see": 0.04, "i guess": 0.08, "i feel": 0.05,
-        "i suppose": 0.03, "i believe": 0.04,
+        d["kind of"] = 0.06; d["sort of"] = 0.05; d["i mean"] = 0.15
+        d["i think"] = 0.20; d["you know"] = 0.18; d["you see"] = 0.04
+        d["i guess"] = 0.08; d["i feel"] = 0.05; d["i suppose"] = 0.03
+        d["i believe"] = 0.04
         // Intensifiers used as hedges
-        "totally": 0.03, "absolutely": 0.04, "definitely": 0.05, "certainly": 0.04,
-        "probably": 0.08, "possibly": 0.03, "perhaps": 0.04, "maybe": 0.07,
-        "surely": 0.02, "simply": 0.04, "practically": 0.02, "virtually": 0.02,
-        "essentially": 0.02, "typically": 0.03, "generally": 0.04, "normally": 0.03,
-        "usually": 0.06, "often": 0.07, "sometimes": 0.07, "always": 0.08,
-        "never": 0.08, "occasionally": 0.02,
+        d["totally"] = 0.03; d["absolutely"] = 0.04; d["definitely"] = 0.05
+        d["certainly"] = 0.04; d["probably"] = 0.08; d["possibly"] = 0.03
+        d["perhaps"] = 0.04; d["maybe"] = 0.07; d["surely"] = 0.02
+        d["simply"] = 0.04; d["practically"] = 0.02; d["virtually"] = 0.02
+        d["typically"] = 0.03; d["generally"] = 0.04; d["normally"] = 0.03
+        d["usually"] = 0.06; d["often"] = 0.07; d["sometimes"] = 0.07
+        d["occasionally"] = 0.02
         // Topic pivots / transitions
-        "anyway": 0.03, "moving": 0.02, "speaking": 0.02, "talking": 0.04,
-        "honestly": 0.02, "truthfully": 0.01,
+        d["moving"] = 0.02; d["speaking"] = 0.02; d["talking"] = 0.04
+        d["truthfully"] = 0.01
         // Short fillers that survive stop-word filter
-        "wow": 0.02, "gosh": 0.01, "well": 0.15, "hmm": 0.02, "hm": 0.01,
-    ]
+        d["wow"] = 0.02; d["gosh"] = 0.01; d["well"] = 0.15
+        d["hmm"] = 0.02; d["hm"] = 0.01
+        return d
+    }
 
     /// Detects candidate filler words using statistical reasoning:
     /// - **Lift**: how many times above the expected corpus baseline is this word used?
