@@ -1,6 +1,4 @@
-<img src="docs/app-icon.png" width="80" alt="Eloquent app icon"> &nbsp; **Eloquent** — Filler word detection that helps you speak with confidence.
-
-A native macOS menu bar app that listens during calls and flags filler words ("um", "uh", "like", …) in real time. Everything runs **on-device** — no audio, transcript, or usage data ever leaves your Mac.
+<table><tr><td valign="middle"><img src="docs/app-icon.png" width="80" alt="Eloquent app icon"></td><td valign="middle">&nbsp;&nbsp;<strong>Eloquent</strong> — Filler word detection that helps you speak with confidence.<br><br>A native macOS menu bar app that listens during calls and flags filler words ("um", "uh", "like", …) in real time. Everything runs <strong>on-device</strong> — no audio, transcript, or usage data ever leaves your Mac.</td></tr></table>
 
 ---
 
