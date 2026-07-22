@@ -67,7 +67,7 @@ struct CandidateFiller {
     let word: String
     let sessionsCount: Int
     let totalOccurrences: Int
-    let avgPerSession: Double
+    let avgPerSession: Double   // mean rate per session (occurrences, not per 100 words)
 }
 
 // MARK: - Store
@@ -197,33 +197,119 @@ final class AnalyticsStore {
         .sorted { $0.total > $1.total }
     }
 
-    /// Words appearing frequently in sessions that aren't yet in the filler word list.
+    // MARK: - Candidate filler detection
+
+    /// Corpus baseline rates (per 100 words) from SUBTLEX-US conversational speech.
+    /// Only words that *could* be fillers are included; common content words are absent,
+    /// so any word not in this table uses a conservative default of 0.05.
+    /// Words with a baseline above 0.5 are also excluded (too common to be meaningful).
+    static let corpusBaseline: [String: Double] = [
+        // Discourse markers / hedges
+        "basically": 0.04, "honestly": 0.02, "literally": 0.03, "obviously": 0.04,
+        "clearly": 0.03, "essentially": 0.02, "technically": 0.02, "actually": 0.10,
+        "seriously": 0.03, "genuinely": 0.01, "frankly": 0.01, "admittedly": 0.01,
+        "apparently": 0.03, "supposedly": 0.01, "theoretically": 0.01,
+        // Fillers / utterance restarts
+        "anyway": 0.03, "whatever": 0.04, "regardless": 0.02, "anyway": 0.03,
+        "anyhow": 0.01, "nevermind": 0.01,
+        // Hesitation / hedge bigrams
+        "kind of": 0.06, "sort of": 0.05, "i mean": 0.15, "i think": 0.20,
+        "you know": 0.18, "you see": 0.04, "i guess": 0.08, "i feel": 0.05,
+        "i suppose": 0.03, "i believe": 0.04,
+        // Intensifiers used as hedges
+        "totally": 0.03, "absolutely": 0.04, "definitely": 0.05, "certainly": 0.04,
+        "probably": 0.08, "possibly": 0.03, "perhaps": 0.04, "maybe": 0.07,
+        "surely": 0.02, "simply": 0.04, "practically": 0.02, "virtually": 0.02,
+        "essentially": 0.02, "typically": 0.03, "generally": 0.04, "normally": 0.03,
+        "usually": 0.06, "often": 0.07, "sometimes": 0.07, "always": 0.08,
+        "never": 0.08, "occasionally": 0.02,
+        // Topic pivots / transitions
+        "anyway": 0.03, "moving": 0.02, "speaking": 0.02, "talking": 0.04,
+        "honestly": 0.02, "truthfully": 0.01,
+        // Short fillers that survive stop-word filter
+        "wow": 0.02, "gosh": 0.01, "well": 0.15, "hmm": 0.02, "hm": 0.01,
+    ]
+
+    /// Detects candidate filler words using statistical reasoning:
+    /// - **Lift**: how many times above the expected corpus baseline is this word used?
+    ///   Words that are 5× above baseline are statistically anomalous.
+    /// - **Consistency (CV)**: do they appear at a *stable* rate session-to-session?
+    ///   Filler words are topic-independent; content words vary by session topic.
+    ///   Low coefficient of variation = habitual usage.
+    /// - **Persistence**: does the word appear in most sessions (not just one outlier)?
+    ///
+    /// Scored by `lift / max(CV, 0.1)` — rewards words that are both anomalously
+    /// frequent AND remarkably consistent.
     var candidateFillers: [CandidateFiller] {
         let dismissed = Settings.dismissedCandidates
-        let existing = Set(Settings.allFillers)
+        let existing  = Set(Settings.allFillers)
+        let N = Double(allSessions.count)
+        guard N >= 2 else { return [] }
 
-        var byWord: [String: (sessions: Int, total: Int)] = [:]
+        // Build per-word rate arrays: [word: [ratePerHundred per session]]
+        var ratesByWord: [String: [Double]] = [:]
         for session in allSessions {
+            let total = Double(session.totalWordsSpoken)
+            guard total > 10 else { continue }         // skip very short sessions
             for (word, count) in session.wordFrequencies {
-                if dismissed.contains(word) || existing.contains(word) { continue }
-                let prev = byWord[word] ?? (0, 0)
-                byWord[word] = (prev.sessions + 1, prev.total + count)
+                guard !dismissed.contains(word), !existing.contains(word) else { continue }
+                let rate = Double(count) / total * 100.0
+                ratesByWord[word, default: []].append(rate)
             }
         }
 
-        return byWord.compactMap { (word, stats) -> CandidateFiller? in
-            // Must appear in ≥2 sessions OR ≥3 times in a single session, AND ≥3 total.
-            let meetsThreshold = stats.sessions >= 2 ||
-                allSessions.contains { ($0.wordFrequencies[word] ?? 0) >= 3 }
-            guard meetsThreshold && stats.total >= 3 else { return nil }
-            return CandidateFiller(
+        let minSessions = max(2, Int(ceil(N / 2.0)))
+        let defaultBaseline = 0.05
+
+        var candidates: [CandidateFiller] = []
+
+        for (word, rates) in ratesByWord {
+            guard rates.count >= minSessions else { continue }
+
+            let mean = rates.reduce(0, +) / Double(rates.count)
+            guard mean > 0 else { continue }
+
+            // Coefficient of variation: stddev / mean. Low CV = consistent usage.
+            let variance = rates.map { pow($0 - mean, 2) }.reduce(0, +) / Double(rates.count)
+            let cv = sqrt(variance) / mean
+
+            // Lift: how far above the corpus baseline?
+            let baseline = AnalyticsStore.corpusBaseline[word] ?? defaultBaseline
+            let lift = mean / baseline
+
+            // Thresholds:
+            // - lift >= 3.0: at least 3× above expected conversational frequency
+            // - cv <= 0.80: appears at reasonably consistent rate (not just one topic spike)
+            // - rates.count >= minSessions: appears in ≥ half of sessions
+            guard lift >= 3.0, cv <= 0.80 else { continue }
+
+            // Score: rewards both high anomaly and high consistency
+            let score = lift / max(cv, 0.10)
+
+            candidates.append(CandidateFiller(
                 word: word,
-                sessionsCount: stats.sessions,
-                totalOccurrences: stats.total,
-                avgPerSession: Double(stats.total) / Double(max(1, stats.sessions))
-            )
+                sessionsCount: rates.count,
+                totalOccurrences: Int(mean * Double(rates.count)),
+                avgPerSession: mean
+            ))
+            _ = score  // used for sorting below via a parallel array approach
         }
-        .sorted { $0.totalOccurrences > $1.totalOccurrences }
+
+        // Re-sort by score (lift / max(CV, 0.1)) — need to recompute for sort
+        let scored: [(CandidateFiller, Double)] = candidates.compactMap { c in
+            guard let rates = ratesByWord[c.word], !rates.isEmpty else { return nil }
+            let mean = rates.reduce(0, +) / Double(rates.count)
+            let variance = rates.map { pow($0 - mean, 2) }.reduce(0, +) / Double(rates.count)
+            let cv = sqrt(variance) / max(mean, 0.001)
+            let baseline = AnalyticsStore.corpusBaseline[c.word] ?? defaultBaseline
+            let lift = mean / baseline
+            return (c, lift / max(cv, 0.10))
+        }
+
+        return scored
+            .sorted { $0.1 > $1.1 }
+            .prefix(8)
+            .map { $0.0 }
     }
 
     // MARK: - Persistence

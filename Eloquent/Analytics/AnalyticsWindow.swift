@@ -359,7 +359,11 @@ final class AnalyticsViewController: NSViewController {
         row.heightAnchor.constraint(equalToConstant: 44).isActive = true
 
         let wordL = tf(candidate.word, size: 13, weight: .semibold, color: P.textPrim)
-        let metaL = tf("\(candidate.totalOccurrences)× across \(candidate.sessionsCount) session\(candidate.sessionsCount == 1 ? "" : "s")",
+        let baseline = AnalyticsStore.corpusBaseline[candidate.word] ?? 0.05
+        let ratePerHundred = candidate.avgPerSession   // avgPerSession stores mean rate/100w
+        let lift = ratePerHundred / baseline
+        let liftStr = lift >= 10 ? String(format: "%.0f×", lift) : String(format: "%.1f×", lift)
+        let metaL = tf("~\(liftStr) above typical · \(candidate.sessionsCount) session\(candidate.sessionsCount == 1 ? "" : "s")",
                        size: 11, color: P.textTert)
 
         let addBtn = NSButton(title: "Add to list", target: self, action: #selector(addCandidateTapped(_:)))

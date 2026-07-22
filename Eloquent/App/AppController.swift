@@ -72,28 +72,14 @@ class AppController {
             }
             .store(in: &cancellables)
 
-        // Reset the per-session filler count whenever a new session begins
-        // (new detected call, or manual mode toggled either direction).
+        // Reset per-session state when a new session begins.
+        // Recording is handled exclusively by the $callInProgress sink (when active→false)
+        // to avoid duplicates — don't call recordSession here.
         callDetector.$sessionID
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self else { return }
-                // A new session is starting — record the outgoing session's data
-                // BEFORE stop() clears the recognizer. (This covers mid-call resets,
-                // e.g. toggling manual mode while a call is active.)
-                let snapshot = self.stats
-                let freqs = FillerWordRecognizer.shared.sessionWordFrequencies
-                let start = self.sessionStartDate ?? Date()
-                // Only record if there's data AND we're still in an active call
-                // (if the call already ended, the callInProgress sink recorded it)
-                if snapshot.total() > 0 {
-                    let callActive = callDetector.callInProgress
-                    if callActive {
-                        AnalyticsStore.shared.recordSession(snapshot, wordFrequencies: freqs,
-                                                            startDate: start, endDate: Date())
-                    }
-                }
                 self.sessionStartDate = Date()
                 self.stats.reset()
                 self.statusBar.update(stats: self.stats)
