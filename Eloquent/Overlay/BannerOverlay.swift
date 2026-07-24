@@ -7,6 +7,8 @@ class BannerOverlay {
     private let panel: NSPanel
     private let contentVC = BannerContentView()
     private var dismissTimer: Timer?
+    private var showGeneration = 0   // guards stale dismiss completions
+    private var isShowing = false    // true from show() until orderOut fires
 
     private let maxWidth: CGFloat = 340
     private let minWidth: CGFloat = 200
@@ -34,6 +36,18 @@ class BannerOverlay {
         dispatchPrecondition(condition: .onQueue(.main))
         guard let screen = NSScreen.main else { return }
         let notch = ScreenNotch(screen: screen)
+
+        // Cancel any pending dismiss and stop in-flight animations so a rapid
+        // re-show never flickers from a stale fade-out or frame animation.
+        dismissTimer?.invalidate()
+        dismissTimer = nil
+        showGeneration &+= 1
+        // Stop any in-flight dismiss animation before starting a new show so a
+        // rapid re-show never inherits a half-faded / mid-collapse state.
+        if isShowing {
+            cancelInFlightAnimations()
+        }
+        isShowing = true
 
         contentVC.word = word
         contentVC.count = count
@@ -71,7 +85,7 @@ class BannerOverlay {
         let startX = notch.centerX - startWidth / 2
         let startY = notch.topY - topInset - 6      // barely peeking below the notch
 
-        let alreadyVisible = panel.isVisible && panel.alphaValue > 0.01
+        let alreadyVisible = isShowing && panel.isVisible
         if alreadyVisible {
             animateFrame(to: NSRect(x: x, y: restY, width: width, height: fullHeight), duration: 0.28, spring: true)
             pulse()
@@ -108,7 +122,7 @@ class BannerOverlay {
         let restY = vf.maxY - height - 14
         let startY = vf.maxY - height + 6
 
-        let alreadyVisible = panel.isVisible && panel.alphaValue > 0.01
+        let alreadyVisible = isShowing && panel.isVisible
         if alreadyVisible {
             animateFrame(to: NSRect(x: x, y: restY, width: width, height: height), duration: 0.24, spring: false)
             pulse()
@@ -141,51 +155,67 @@ class BannerOverlay {
 
     private func pulse() {
         guard let layer = panel.contentView?.layer else { return }
-        let anim = CASpringAnimation(keyPath: "transform.scale")
-        anim.fromValue = 1.0
-        anim.toValue = 1.05
-        anim.autoreverses = true
-        anim.duration = 0.16
-        anim.damping = 9
+        // A subtle inward squeeze, anchored at the TOP-center of the layer.
+        //
+        // Scaling *up* would push the banner past the window frame, which the
+        // window then clips into square corners — the artefact we saw. Scaling
+        // *down* stays within bounds, so nothing is ever clipped. Anchoring at
+        // the top edge (rather than the center) keeps the notch banner flush to
+        // the screen top; only the sides and bottom breathe inward, symmetrically.
+        let b = layer.bounds
+        let cx = b.midX, topY = b.maxY
+        func scaleAboutTop(_ s: CGFloat) -> CATransform3D {
+            var t = CATransform3DIdentity
+            t = CATransform3DTranslate(t, cx, topY, 0)
+            t = CATransform3DScale(t, s, s, 1)
+            return CATransform3DTranslate(t, -cx, -topY, 0)
+        }
+        let anim = CAKeyframeAnimation(keyPath: "transform")
+        anim.values = [scaleAboutTop(1.0), scaleAboutTop(0.955), scaleAboutTop(1.0)]
+        anim.keyTimes = [0, 0.42, 1.0]
+        anim.duration = 0.32
+        anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         layer.add(anim, forKey: "pulse")
     }
 
     private func dismiss() {
-        guard let screen = NSScreen.main else { panel.orderOut(nil); return }
-        let notch = ScreenNotch(screen: screen)
         let f = panel.frame
+        let gen = showGeneration   // capture; if show() fires before completion, gen won't match
 
-        // Retract upward toward the top edge / notch, fading out.
-        if notch.hasNotch {
-            // Collapse the black shape back into the notch footprint. No alpha fade —
-            // fading would reveal the desktop around the physical notch. We shrink the
-            // height to ~the notch inset so it visually tucks back up into the notch.
-            let startWidth = max(notch.notchWidth, 140)
-            let collapsedHeight = notch.topInset
-            let targetRect = NSRect(x: notch.centerX - startWidth / 2,
-                                    y: notch.topY - collapsedHeight,
-                                    width: startWidth, height: collapsedHeight)
-            NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = 0.26
-                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0.0, 0.2, 1.0)
-                panel.animator().setFrame(targetRect, display: true)
-            }, completionHandler: { [weak self] in
-                self?.contentVC.stopWaveform()
-                self?.panel.orderOut(nil)
-            })
-            return
-        }
+        // Stop the looping waveform up front so no equalizer repaint lands
+        // mid-fade (a repaint during the fade reads as a flicker).
+        contentVC.stopWaveform()
 
-        // Pill mode: retract upward and fade out.
-        let targetRect = NSRect(x: f.origin.x, y: f.origin.y + 22, width: f.width, height: f.height)
+        // Both modes retract upward toward the top edge while fading out. Keeping
+        // full height (rather than collapsing it) avoids an Auto Layout squish of
+        // the content row, which was the source of the notch flash. The alpha fade
+        // means the final frame is invisible before orderOut, so there's no hard cut.
+        let riseBy: CGFloat = 18
+        let targetRect = NSRect(x: f.origin.x, y: f.origin.y + riseBy, width: f.width, height: f.height)
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.28
+            ctx.duration = 0.24
             ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0.0, 0.2, 1.0)
             panel.animator().setFrame(targetRect, display: true)
             panel.animator().alphaValue = 0.0
         }, completionHandler: { [weak self] in
-            self?.contentVC.stopWaveform()
-            self?.panel.orderOut(nil)
+            guard let self, self.showGeneration == gen else { return }
+            self.isShowing = false
+            self.panel.orderOut(nil)
+            self.panel.alphaValue = 1.0   // reset so the next show starts clean
         })
+    }
+
+    /// Halts any in-flight window animation (frame + alpha) and restores the panel
+    /// to a fully visible state, so an interrupting show() never inherits a
+    /// half-faded frame. Removing implicit animations under a committed
+    /// transaction guarantees the alpha snap is applied atomically.
+    private func cancelInFlightAnimations() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        // Snap the animator proxy to the current presented state, then clear it.
+        panel.animator().alphaValue = panel.alphaValue
+        panel.contentView?.layer?.removeAllAnimations()
+        panel.alphaValue = 1.0
+        CATransaction.commit()
     }
 }
